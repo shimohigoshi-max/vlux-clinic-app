@@ -7,12 +7,16 @@ import {
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
+  Crown, Award,
 } from "lucide-react";
 import type { KarteResult, Product } from "@/lib/constants";
 import {
-  HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS,
+  HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS, TREATMENT_HISTORY,
+  RANKS, getRank, getNextRank,
   statusColor, statusBg,
 } from "@/lib/constants";
+
+const VISIT_COUNT = TREATMENT_HISTORY.length;
 
 interface SmartphoneViewProps {
   patientSent: boolean;
@@ -109,7 +113,7 @@ export function SmartphoneView({
           )}
 
           <div className="flex border-b border-border">
-            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "ショップ"]] as const).map(([tab, label]) => (
+            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "ショップ"], ["rank", "ランク"]] as const).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => onPhoneTabChange(tab)}
@@ -300,87 +304,267 @@ export function SmartphoneView({
             )}
 
             {phoneTab === "shop" && (
-              <div className="space-y-2.5">
-                {purchaseMsg && (
-                  <div className="bg-primary/10 border border-primary/30 rounded-md px-3 py-2 text-[12px] text-primary flex items-center gap-1.5 animate-fade-in" data-testid="text-purchase-msg">
-                    <Check className="w-3.5 h-3.5" /> {purchaseMsg}
-                  </div>
-                )}
-
-                <p className="text-[10px] text-muted-foreground tracking-wider" data-testid="text-shop-subtitle">
-                  {patientSent ? "今日の施術データに基づくおすすめ" : "あなたの健康状態に合わせたおすすめ"}
-                </p>
-
-                {(patientSent ? recommendedProducts : DEMO_PRODUCTS.slice(0, 2)).map(p => {
-                  const IconComp = PRODUCT_ICONS[p.id] || Shield;
-                  const inCart = cart.some(c => c.id === p.id);
-                  return (
-                    <div key={p.id} className="bg-primary/5 border border-primary/10 rounded-md p-3 flex gap-2.5" data-testid={`card-shop-product-${p.id}`}>
-                      <div className="w-10 h-10 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
-                        <IconComp className="w-5 h-5 text-primary" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[13px] text-foreground font-medium truncate">{p.name}</p>
-                        <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">{p.desc}</p>
-                        <div className="flex items-center justify-between mt-2">
-                          <span className="text-[13px] text-primary font-mono font-bold">¥{p.price.toLocaleString()}</span>
-                          <Button
-                            size="sm"
-                            variant={inCart ? "secondary" : "default"}
-                            onClick={() => onAddToCart(p)}
-                            disabled={inCart}
-                            data-testid={`button-add-cart-${p.id}`}
-                          >
-                            {inCart ? <><Check className="w-3 h-3" /> 追加済</> : "カートへ"}
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-
-                <div className="border-t border-border pt-2.5 mt-1">
-                  <p className="text-[10px] text-muted-foreground mb-2">その他の商品</p>
-                  {DEMO_PRODUCTS.filter(p =>
-                    !(patientSent ? recommendedProducts : DEMO_PRODUCTS.slice(0, 2)).some(rp => rp.id === p.id)
-                  ).map(p => {
-                    const IconComp = PRODUCT_ICONS[p.id] || Shield;
-                    const inCart = cart.some(c => c.id === p.id);
-                    return (
-                      <div key={p.id} className="bg-muted/30 border border-border rounded-md p-2.5 mb-2 flex gap-2 items-center" data-testid={`card-other-product-${p.id}`}>
-                        <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
-                          <IconComp className="w-4 h-4 text-muted-foreground" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[12px] text-foreground/70 truncate">{p.name}</p>
-                          <p className="text-[11px] text-muted-foreground font-mono">¥{p.price.toLocaleString()}</p>
-                        </div>
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => onAddToCart(p)}
-                          disabled={inCart}
-                          data-testid={`button-add-other-${p.id}`}
-                        >
-                          {inCart ? <Check className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4" />}
-                        </Button>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {cart.length > 0 && (
-                  <div className="sticky bottom-0 bg-background border-t border-border pt-2.5 pb-1">
-                    <Button className="w-full" size="lg" data-testid="button-checkout">
-                      <ShoppingCart className="w-4 h-4" />
-                      カート ({cart.length}点) · ¥{cart.reduce((s, p) => s + p.price, 0).toLocaleString()} — 購入する
-                    </Button>
-                  </div>
-                )}
-              </div>
+              <ShopTab
+                patientSent={patientSent}
+                recommendedProducts={recommendedProducts}
+                cart={cart}
+                onAddToCart={onAddToCart}
+                purchaseMsg={purchaseMsg}
+              />
             )}
+
+            {phoneTab === "rank" && <RankTab />}
           </div>
         </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
+function ShopTab({
+  patientSent, recommendedProducts, cart, onAddToCart, purchaseMsg,
+}: {
+  patientSent: boolean;
+  recommendedProducts: Product[];
+  cart: Product[];
+  onAddToCart: (p: Product) => void;
+  purchaseMsg: string;
+}) {
+  const rank = getRank(VISIT_COUNT);
+  const recProds = patientSent ? recommendedProducts : DEMO_PRODUCTS.slice(0, 2);
+
+  return (
+    <div className="space-y-2.5">
+      {purchaseMsg && (
+        <div className="bg-primary/10 border border-primary/30 rounded-md px-3 py-2 text-[12px] text-primary flex items-center gap-1.5 animate-fade-in" data-testid="text-purchase-msg">
+          <Check className="w-3.5 h-3.5" /> {purchaseMsg}
+        </div>
+      )}
+
+      {rank && (
+        <div className="rounded-lg p-2.5 flex items-center gap-2" style={{ background: rank.gradient, border: `1px solid ${rank.border}50` }} data-testid="shop-rank-banner">
+          <Crown className="w-4 h-4" style={{ color: rank.glow }} />
+          <div>
+            <p className="text-[10px] font-bold" style={{ color: rank.color }}>{rank.label}会員特典</p>
+            <p className="text-[11px]" style={{ color: rank.glow }}>
+              通販 <span className="font-mono font-bold">{rank.ecDiscount}% OFF</span> · ポイント <span className="font-mono font-bold">{rank.pointRate}%</span> 還元
+            </p>
+          </div>
+        </div>
+      )}
+
+      <p className="text-[10px] text-muted-foreground tracking-wider" data-testid="text-shop-subtitle">
+        {patientSent ? "今日の施術データに基づくおすすめ" : "あなたの健康状態に合わせたおすすめ"}
+      </p>
+
+      {recProds.map(p => {
+        const IconComp = PRODUCT_ICONS[p.id] || Shield;
+        const inCart = cart.some(c => c.id === p.id);
+        const discounted = rank ? Math.round(p.price * (1 - rank.ecDiscount / 100)) : p.price;
+        const pts = rank ? Math.round(discounted * rank.pointRate / 100) : 0;
+        return (
+          <div key={p.id} className="bg-primary/5 border border-primary/10 rounded-md p-3 flex gap-2.5" data-testid={`card-shop-product-${p.id}`}>
+            <div className="w-10 h-10 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
+              <IconComp className="w-5 h-5 text-primary" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-[13px] text-foreground font-medium truncate">{p.name}</p>
+              <p className="text-[10px] text-muted-foreground mt-0.5 leading-relaxed line-clamp-2">{p.desc}</p>
+              <div className="flex items-center justify-between mt-2">
+                <div>
+                  {rank && rank.ecDiscount > 0 ? (
+                    <div>
+                      <span className="font-mono text-[11px] text-muted-foreground line-through">¥{p.price.toLocaleString()}</span>
+                      <span className="font-mono text-[14px] text-primary font-bold ml-1.5">¥{discounted.toLocaleString()}</span>
+                      <p className="text-[9px] mt-0.5" style={{ color: rank.glow }}>+{pts}pt</p>
+                    </div>
+                  ) : (
+                    <span className="text-[13px] text-primary font-mono font-bold">¥{p.price.toLocaleString()}</span>
+                  )}
+                </div>
+                <Button
+                  size="sm"
+                  variant={inCart ? "secondary" : "default"}
+                  onClick={() => onAddToCart(p)}
+                  disabled={inCart}
+                  data-testid={`button-add-cart-${p.id}`}
+                >
+                  {inCart ? <><Check className="w-3 h-3" /> 追加済</> : "カートへ"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      <div className="border-t border-border pt-2.5 mt-1">
+        <p className="text-[10px] text-muted-foreground mb-2">その他の商品</p>
+        {DEMO_PRODUCTS.filter(p => !recProds.some(rp => rp.id === p.id)).map(p => {
+          const IconComp = PRODUCT_ICONS[p.id] || Shield;
+          const inCart = cart.some(c => c.id === p.id);
+          const discounted = rank ? Math.round(p.price * (1 - rank.ecDiscount / 100)) : p.price;
+          return (
+            <div key={p.id} className="bg-muted/30 border border-border rounded-md p-2.5 mb-2 flex gap-2 items-center" data-testid={`card-other-product-${p.id}`}>
+              <div className="w-8 h-8 rounded-md bg-muted flex items-center justify-center shrink-0">
+                <IconComp className="w-4 h-4 text-muted-foreground" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[12px] text-foreground/70 truncate">{p.name}</p>
+                <div className="flex gap-1.5 items-center mt-0.5">
+                  {rank && rank.ecDiscount > 0 && (
+                    <span className="text-[10px] text-muted-foreground font-mono line-through">¥{p.price.toLocaleString()}</span>
+                  )}
+                  <span className="text-[11px] font-mono" style={{ color: rank ? rank.glow : undefined }}>¥{discounted.toLocaleString()}</span>
+                </div>
+              </div>
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => onAddToCart(p)}
+                disabled={inCart}
+                data-testid={`button-add-other-${p.id}`}
+              >
+                {inCart ? <Check className="w-4 h-4 text-primary" /> : <Plus className="w-4 h-4" />}
+              </Button>
+            </div>
+          );
+        })}
+      </div>
+
+      {cart.length > 0 && (
+        <div className="sticky bottom-0 bg-background border-t border-border pt-2.5 pb-1">
+          <Button className="w-full" size="lg" data-testid="button-checkout">
+            <ShoppingCart className="w-4 h-4" />
+            カート ({cart.length}点) · ¥{cart.reduce((s, p) => {
+              const d = rank ? Math.round(p.price * (1 - rank.ecDiscount / 100)) : p.price;
+              return s + d;
+            }, 0).toLocaleString()} — 購入する
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function RankTab() {
+  const rank = getRank(VISIT_COUNT);
+  const nextRank = getNextRank(VISIT_COUNT);
+
+  return (
+    <div className="space-y-3" data-testid="rank-tab">
+      {rank ? (
+        <div className="rounded-xl p-4 relative overflow-hidden" style={{ background: rank.gradient, border: `1px solid ${rank.border}`, boxShadow: `0 4px 24px ${rank.glow}30` }} data-testid="rank-card">
+          <div className="flex items-center gap-2.5 mb-3">
+            <Crown className="w-8 h-8" style={{ color: rank.glow }} />
+            <div>
+              <p className="font-mono text-[10px] tracking-[3px]" style={{ color: rank.glow }}>{rank.labelEn}</p>
+              <p className="text-lg font-bold" style={{ color: rank.color }}>{rank.label}会員</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 mb-3.5">
+            {[
+              { label: "通算来院", val: `${VISIT_COUNT}回` },
+              { label: "通販割引", val: `${rank.ecDiscount}%` },
+              { label: "ポイント還元", val: `${rank.pointRate}%` },
+            ].map(m => (
+              <div key={m.label} className="bg-black/30 rounded-lg p-2 text-center">
+                <p className="font-mono text-[13px] font-bold" style={{ color: rank.color }}>{m.val}</p>
+                <p className="text-[8px]" style={{ color: rank.glow }}>{m.label}</p>
+              </div>
+            ))}
+          </div>
+          {nextRank ? (
+            <div>
+              <div className="flex justify-between text-[9px] mb-1" style={{ color: rank.glow }}>
+                <span>次のランク：{nextRank.label}（{nextRank.visits}回）</span>
+                <span>{VISIT_COUNT} / {nextRank.visits}回</span>
+              </div>
+              <div className="h-1.5 bg-black/40 rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all duration-1000"
+                  style={{
+                    width: `${(VISIT_COUNT / nextRank.visits) * 100}%`,
+                    background: `linear-gradient(90deg,${rank.glow},${nextRank.glow})`,
+                  }}
+                />
+              </div>
+              <p className="text-[9px] mt-1 text-right" style={{ color: rank.glow }}>
+                あと {nextRank.visits - VISIT_COUNT} 回で {nextRank.label}へ
+              </p>
+            </div>
+          ) : (
+            <p className="text-[10px] text-center py-1" style={{ color: rank.glow }}>
+              最高ランク達成！すべての特典が解放されています
+            </p>
+          )}
+        </div>
+      ) : (
+        <div className="text-center py-8">
+          <Award className="w-8 h-8 text-muted-foreground/20 mx-auto mb-2" />
+          <p className="text-[12px] text-muted-foreground">5回来院でブロンズランク獲得！</p>
+        </div>
+      )}
+
+      {rank && (
+        <div className="bg-muted/20 border rounded-md p-3.5" style={{ borderColor: `${rank.border}40` }} data-testid="rank-perks">
+          <p className="text-[10px] tracking-[2px] mb-2.5" style={{ color: rank.glow }}>現在の特典一覧</p>
+          {rank.perks.map((p, i) => (
+            <div key={i} className="flex gap-2 mb-1.5">
+              <Check className="w-3 h-3 mt-0.5 shrink-0" style={{ color: rank.glow }} />
+              <span className="text-[12px] text-foreground/70 leading-relaxed">{p}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div data-testid="rank-roadmap">
+        <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2.5">ランクロードマップ</p>
+        {[...RANKS].reverse().map((r, i) => {
+          const achieved = VISIT_COUNT >= r.visits;
+          const isCurrent = rank?.id === r.id;
+          return (
+            <div key={r.id} className="flex gap-2.5 mb-2" style={{ opacity: achieved ? 1 : 0.45 }} data-testid={`rank-tier-${r.id}`}>
+              <div className="flex flex-col items-center" style={{ minWidth: 20 }}>
+                <div
+                  className="w-2.5 h-2.5 rounded-full mt-1 shrink-0"
+                  style={{
+                    background: achieved ? r.glow : "var(--muted-foreground)",
+                    boxShadow: isCurrent ? `0 0 6px ${r.glow}` : "none",
+                  }}
+                />
+                {i < RANKS.length - 1 && <div className="w-px flex-1 bg-border mt-0.5" />}
+              </div>
+              <div
+                className="flex-1 rounded-lg p-2.5 mb-0.5"
+                style={{
+                  background: isCurrent ? r.gradient : "rgba(255,255,255,0.02)",
+                  border: `1px solid ${isCurrent ? r.border : "var(--border)"}`,
+                  boxShadow: isCurrent ? `0 0 12px ${r.glow}25` : "none",
+                }}
+              >
+                <div className="flex items-center gap-1.5 mb-1">
+                  <Crown className="w-4 h-4" style={{ color: isCurrent ? r.color : "var(--muted-foreground)" }} />
+                  <span className="font-mono text-[11px] font-bold" style={{ color: isCurrent ? r.color : "var(--muted-foreground)" }}>
+                    {r.label}
+                  </span>
+                  {isCurrent && (
+                    <Badge variant="outline" className="ml-auto text-[8px] h-3.5" style={{ color: r.glow, borderColor: `${r.glow}60` }}>
+                      現在
+                    </Badge>
+                  )}
+                  <span className={`text-[9px] text-muted-foreground ${isCurrent ? "" : "ml-auto"}`}>{r.visits}回〜</span>
+                </div>
+                <div className="flex gap-1.5 flex-wrap">
+                  {[`割引 ¥${r.couponDiscount.toLocaleString()}/回`, `通販 ${r.ecDiscount}%OFF`, `PT ${r.pointRate}%`].map(t => (
+                    <span key={t} className="text-[9px] bg-black/30 rounded px-1.5 py-0.5" style={{ color: isCurrent ? r.glow : "var(--muted-foreground)" }}>
+                      {t}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

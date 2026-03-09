@@ -93,6 +93,39 @@ export interface TreatmentRecord {
   note: string;
 }
 
+export interface Rank {
+  id: string;
+  label: string;
+  labelEn: string;
+  visits: number;
+  color: string;
+  glow: string;
+  gradient: string;
+  border: string;
+  couponDiscount: number;
+  pointRate: number;
+  ecDiscount: number;
+  referralBonus: number;
+  perks: string[];
+}
+
+export const RANKS: Rank[] = [
+  { id: "eternal_platinum", label: "永久プラチナ", labelEn: "ETERNAL PLATINUM", visits: 80, color: "#e0f0ff", glow: "#80c8ff", gradient: "linear-gradient(135deg,#0a2a50,#061828,#0a3560)", border: "#80c8ff", couponDiscount: 2000, pointRate: 10, ecDiscount: 20, referralBonus: 2000, perks: ["施術¥2,000 OFF（毎回）","通販20%OFF","ポイント10%還元","紹介ボーナス¥2,000","専任担当制","優先予約枠","特別イベント招待"] },
+  { id: "platinum", label: "プラチナ", labelEn: "PLATINUM", visits: 50, color: "#f0e8ff", glow: "#c090ff", gradient: "linear-gradient(135deg,#2a1a4a,#160a2a,#3a1a5a)", border: "#c090ff", couponDiscount: 1500, pointRate: 7, ecDiscount: 15, referralBonus: 1500, perks: ["施術¥1,500 OFF（毎回）","通販15%OFF","ポイント7%還元","紹介ボーナス¥1,500","優先予約枠","バースデークーポン"] },
+  { id: "gold", label: "ゴールド", labelEn: "GOLD", visits: 30, color: "#fff8e0", glow: "#ffd060", gradient: "linear-gradient(135deg,#3a2a00,#201800,#3a3000)", border: "#d4a030", couponDiscount: 1000, pointRate: 5, ecDiscount: 10, referralBonus: 1000, perks: ["施術¥1,000 OFF（毎回）","通販10%OFF","ポイント5%還元","紹介ボーナス¥1,000","先行商品案内"] },
+  { id: "silver", label: "シルバー", labelEn: "SILVER", visits: 15, color: "#e8eff8", glow: "#90a8c8", gradient: "linear-gradient(135deg,#1a2030,#0e1520,#202838)", border: "#7090b8", couponDiscount: 700, pointRate: 3, ecDiscount: 7, referralBonus: 700, perks: ["施術¥700 OFF（毎回）","通販7%OFF","ポイント3%還元","紹介ボーナス¥700"] },
+  { id: "bronze", label: "ブロンズ", labelEn: "BRONZE", visits: 5, color: "#f8ede0", glow: "#c08060", gradient: "linear-gradient(135deg,#2a1a0a,#180e06,#2a2010)", border: "#a07040", couponDiscount: 500, pointRate: 1, ecDiscount: 3, referralBonus: 500, perks: ["施術¥500 OFF（毎回）","通販3%OFF","ポイント1%還元","紹介ボーナス¥500"] },
+];
+
+export function getRank(visits: number): Rank | null {
+  return RANKS.find(r => visits >= r.visits) || null;
+}
+
+export function getNextRank(visits: number): Rank | null {
+  const i = RANKS.findIndex(r => visits >= r.visits);
+  return i > 0 ? RANKS[i - 1] : null;
+}
+
 export const SAMPLE_CONVERSATION = `先生： お疲れ様です、田中さん。今日は腰がかなりお辛いということで。
 患者： そうなんですよ。昨日、スーパーで米の袋を持ち上げた瞬間に「あ、これやばい」と思って。今は座ってるだけでも重だるい感じです。
 先生： あちゃー、それはしんどいですね。触りますね……。仙腸関節のあたりがガチガチだ。デスクワークで座りっぱなしなのが響いてますね。
