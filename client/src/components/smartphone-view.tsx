@@ -7,9 +7,9 @@ import {
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
-  Crown, Award,
+  Crown, Award, Leaf, TrendingUp, Target,
 } from "lucide-react";
-import type { KarteResult, Product } from "@/lib/constants";
+import type { KarteResult, Product, LifeAdvice } from "@/lib/constants";
 import {
   HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS, TREATMENT_HISTORY,
   RANKS, getRank, getNextRank,
@@ -213,6 +213,8 @@ export function SmartphoneView({
                         </div>
                       )}
                     </div>
+
+                    {karte.life_advice && <LifeAdviceCard lifeAdvice={karte.life_advice} />}
 
                     <CouponWallet expanded />
 
@@ -655,6 +657,111 @@ function CouponWallet({ expanded }: { expanded: boolean }) {
           <Link className="w-3.5 h-3.5" /> 紹介リンクをシェアする
         </Button>
       </div>
+    </div>
+  );
+}
+
+function LifeAdviceCard({ lifeAdvice }: { lifeAdvice: LifeAdvice }) {
+  const priorityStyles: Record<string, { bg: string; text: string; iconBg: string }> = {
+    "\u9AD8": { bg: "bg-red-500/20", text: "text-red-400", iconBg: "bg-red-500/15" },
+    "\u4E2D": { bg: "bg-amber-500/20", text: "text-amber-400", iconBg: "bg-amber-500/12" },
+    "\u4F4E": { bg: "bg-primary/15", text: "text-primary", iconBg: "bg-primary/10" },
+  };
+
+  return (
+    <div className="space-y-2" data-testid="card-life-advice">
+      <div
+        className="rounded-xl p-3.5 relative overflow-hidden border"
+        style={{
+          background: "linear-gradient(135deg,rgba(0,180,120,.12),rgba(0,80,60,.08))",
+          borderColor: "rgba(0,184,120,0.25)",
+        }}
+      >
+        <div className="absolute -top-3 -right-3 text-[60px] opacity-[0.05] pointer-events-none">
+          <Leaf className="w-16 h-16" />
+        </div>
+
+        <div className="flex items-center gap-2 mb-2.5">
+          <div className="bg-primary/15 border border-primary/30 rounded-lg px-2.5 py-1">
+            <p className="text-[8px] text-primary/70 tracking-[2px] leading-tight">今月のテーマ</p>
+            <p className="text-[13px] text-primary font-bold leading-tight" data-testid="text-life-advice-theme">
+              {lifeAdvice.this_month_theme}
+            </p>
+          </div>
+          <Badge
+            variant="outline"
+            className="ml-auto text-[8px] h-4 text-primary/80 border-primary/30 bg-primary/10"
+            data-testid="badge-life-advice-updated"
+          >
+            <Sparkles className="w-2.5 h-2.5 mr-0.5" /> 今日更新
+          </Badge>
+        </div>
+
+        {lifeAdvice.improved_from_last && (
+          <div className="bg-black/20 rounded-lg p-2.5 mb-3 flex gap-2 items-start" data-testid="text-life-advice-improvement">
+            <TrendingUp className="w-3.5 h-3.5 text-emerald-500 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[8px] text-emerald-600 tracking-wider mb-0.5">前回からの改善</p>
+              <p className="text-[11px] text-emerald-400/70 leading-relaxed">{lifeAdvice.improved_from_last}</p>
+            </div>
+          </div>
+        )}
+
+        <p className="text-[8px] text-emerald-700 tracking-[2px] mb-2">生活改善フォーカス</p>
+        <div className="space-y-2" data-testid="life-advice-focus-areas">
+          {lifeAdvice.focus_areas?.map((area, i) => {
+            const style = priorityStyles[area.priority] || priorityStyles["\u4F4E"];
+            return (
+              <div key={i} className="flex gap-2 items-start" data-testid={`life-advice-area-${i}`}>
+                <div
+                  className={`min-w-[28px] h-7 rounded-lg flex items-center justify-center text-sm shrink-0 ${style.iconBg}`}
+                >
+                  {area.icon}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-1.5 mb-0.5">
+                    <span className="text-[10px] text-emerald-400/80 font-semibold">{area.category}</span>
+                    <span className={`text-[8px] px-1.5 py-px rounded ${style.bg} ${style.text}`}>
+                      {area.priority}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-emerald-400/50 leading-relaxed">{area.advice}</p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {lifeAdvice.one_thing_today && (
+        <div
+          className="rounded-xl p-3 border"
+          style={{
+            background: "linear-gradient(135deg,rgba(0,120,220,.1),rgba(0,60,140,.07))",
+            borderColor: "rgba(0,102,204,0.25)",
+          }}
+          data-testid="text-life-advice-today"
+        >
+          <p className="text-[8px] text-sky-500 tracking-[2px] mb-1 flex items-center gap-1">
+            <Zap className="w-3 h-3" /> 今日からできること
+          </p>
+          <p className="text-[13px] text-sky-300/80 font-semibold leading-relaxed">{lifeAdvice.one_thing_today}</p>
+        </div>
+      )}
+
+      {lifeAdvice.next_visit_goal && (
+        <div
+          className="rounded-xl p-3 border border-border bg-muted/20"
+          data-testid="text-life-advice-goal"
+        >
+          <p className="text-[8px] text-muted-foreground tracking-[2px] mb-1 flex items-center gap-1">
+            <Target className="w-3 h-3" /> 次回来院までの目標
+          </p>
+          <p className="text-[11px] text-muted-foreground/70 leading-relaxed italic">
+            "{lifeAdvice.next_visit_goal}"
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -32,6 +32,21 @@ export interface SupplementAdvice {
   reason: string;
 }
 
+export interface LifeAdviceArea {
+  icon: string;
+  category: string;
+  priority: string;
+  advice: string;
+}
+
+export interface LifeAdvice {
+  this_month_theme: string;
+  improved_from_last?: string;
+  focus_areas?: LifeAdviceArea[];
+  one_thing_today?: string;
+  next_visit_goal?: string;
+}
+
 export interface KarteResult {
   chief_complaint?: string;
   findings?: string;
@@ -44,6 +59,7 @@ export interface KarteResult {
   self_care?: string[];
   recommended_products?: string[];
   reason?: string;
+  life_advice?: LifeAdvice;
   error?: string;
 }
 

@@ -26,6 +26,7 @@ const summarizeInputSchema = z.object({
 const analyzeInputSchema = z.object({
   conversation: z.string().min(1).max(15000),
   healthData: z.string().optional().default(""),
+  previousHistory: z.string().optional().default(""),
   products: z.array(z.object({
     id: z.string(),
     name: z.string(),
@@ -63,6 +64,18 @@ const karteResponseSchema = z.object({
   self_care: z.array(z.string()).optional().default([]),
   recommended_products: z.array(z.string()).optional().default([]),
   reason: z.string().optional().default(""),
+  life_advice: z.object({
+    this_month_theme: z.string(),
+    improved_from_last: z.string().optional(),
+    focus_areas: z.array(z.object({
+      icon: z.string(),
+      category: z.string(),
+      priority: z.enum(["高", "中", "低"]),
+      advice: z.string(),
+    })).min(1).max(7).optional().default([]),
+    one_thing_today: z.string().optional(),
+    next_visit_goal: z.string().optional(),
+  }).optional(),
 });
 
 const correlationResponseSchema = z.object({
@@ -151,15 +164,42 @@ export async function registerRoutes(
         return res.status(400).json({ error: "入力データが不正です。" });
       }
 
-      const { conversation, healthData, products } = parsed.data;
+      const { conversation, healthData, previousHistory, products } = parsed.data;
 
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 8192,
-        system: `整骨院AIカルテ。JSONのみ出力（\`\`\`不要）: {"chief_complaint":"","findings":"","treatment":"","advice":[],"patient_message":"患者への親しみやすいメッセージ150字以内","lifestyle_notes":["生活習慣の注意点1","注意点2"],"diet_advice":["食事アドバイス1","アドバイス2"],"supplement_advice":[{"name":"サプリ名","timing":"摂取タイミング","reason":"理由"}],"self_care":["セルフケア指導1","指導2"],"recommended_products":["W001","S001"],"reason":"推薦理由"}`,
+        system: `整骨院AIカルテ。JSONのみ出力（\`\`\`不要）:
+{
+  "chief_complaint": "",
+  "findings": "",
+  "treatment": "",
+  "advice": [],
+  "patient_message": "患者への親しみやすいメッセージ150字以内",
+  "lifestyle_notes": ["生活習慣の注意点"],
+  "diet_advice": ["食事アドバイス"],
+  "supplement_advice": [{"name": "サプリ名", "timing": "摂取タイミング", "reason": "理由"}],
+  "self_care": ["セルフケア指導"],
+  "recommended_products": ["W001"],
+  "reason": "推薦理由",
+  "life_advice": {
+    "this_month_theme": "今月のテーマ（10文字以内）",
+    "improved_from_last": "前回から改善された点（1文）",
+    "focus_areas": [
+      {"category": "睡眠", "icon": "😴", "advice": "具体的なアドバイス1文", "priority": "高"},
+      {"category": "運動", "icon": "🏃", "advice": "具体的なアドバイス1文", "priority": "高"},
+      {"category": "食事・水分", "icon": "🥗", "advice": "具体的なアドバイス1文", "priority": "中"},
+      {"category": "仕事環境", "icon": "💼", "advice": "具体的なアドバイス1文", "priority": "中"},
+      {"category": "メンタル", "icon": "🧘", "advice": "具体的なアドバイス1文", "priority": "低"}
+    ],
+    "one_thing_today": "今日からできる一つのこと（具体的・短く）",
+    "next_visit_goal": "次回来院までの目標（1文）"
+  }
+}
+priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improved_from_lastは過去データがあれば記載。`,
         messages: [{
           role: "user",
-          content: `会話:\n${conversation}\n生活データ: ${healthData}\n商品: ${JSON.stringify(products)}`
+          content: `会話:\n${conversation}\n生活データ: ${healthData}\n過去3回の施術: ${previousHistory}\n商品: ${JSON.stringify(products)}`
         }],
       });
 

@@ -141,9 +141,13 @@ export default function Home() {
       ? `歩数${HEALTH_DATA.steps}歩, 睡眠${HEALTH_DATA.sleep}h, HRV${HEALTH_DATA.hrv}`
       : "健康データ未連携";
     try {
+      const prevHistory = TREATMENT_HISTORY.slice(0, 3).map(h =>
+        `${h.date} ${h.area} 疼痛${h.pain}/10 歩数${h.steps} 睡眠${h.sleep}h HRV${h.hrv} ${h.note}`
+      ).join(" / ");
       const res = await apiRequest("POST", "/api/analyze", {
         conversation: transcript,
         healthData: hd,
+        previousHistory: prevHistory,
         products: DEMO_PRODUCTS.map(p => ({ id: p.id, name: p.name, desc: p.desc })),
       });
       const data = await res.json();
@@ -220,7 +224,7 @@ export default function Home() {
             <h1 className="font-mono text-[13px] font-bold text-primary tracking-[2px]" data-testid="text-app-title">
               CONNECTED HEALTHCARE
             </h1>
-            <p className="text-[9px] text-muted-foreground tracking-[3px]">ECOSYSTEM DEMO v2.4</p>
+            <p className="text-[9px] text-muted-foreground tracking-[3px]">ECOSYSTEM DEMO v2.6</p>
           </div>
         </div>
         <div className="flex gap-2">
