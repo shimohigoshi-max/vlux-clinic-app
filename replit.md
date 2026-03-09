@@ -1,22 +1,27 @@
-# Connected Healthcare Ecosystem Demo
+# Connected Healthcare Ecosystem Demo v2.2
 
 ## Overview
 A healthcare demo application showing how AI can bridge the gap between clinicians and patients. Features two views:
-- **iPad View (Clinician Terminal)**: Input clinical conversations, run AI analysis to auto-generate charts, and recommend products
-- **Smartphone View (Patient)**: View treatment reports, health metrics, and shop for recommended products
+- **iPad View (Clinician Terminal)**: Voice recording (Web Speech API), AI-powered two-step analysis (auto-summarize + full karte generation), treatment history with AI correlation analysis, HealthKit sync simulation
+- **Smartphone View (Patient)**: Timeline with doctor's notes (lifestyle, diet, supplement, self-care advice), health metrics with progress bars, coupon system, booking button, shop with cart
 
 ## Architecture
 - **Frontend**: React + TypeScript with Tailwind CSS and shadcn/ui components
 - **Backend**: Express.js with Anthropic AI integration for conversation analysis
-- **AI**: Uses Replit AI Integrations (Anthropic) - no API key required
+- **AI**: Uses Replit AI Integrations (Anthropic) - no API key required, model: claude-sonnet-4-6
 - **Storage**: In-memory only (demo application, no database)
 
 ## Key Files
-- `client/src/pages/home.tsx` - Main page with state management and view toggle
-- `client/src/components/ipad-view.tsx` - Clinician iPad view with conversation input and AI analysis
-- `client/src/components/smartphone-view.tsx` - Patient smartphone view with health metrics and shop
-- `client/src/lib/constants.ts` - Sample data, product catalog, and TypeScript types
-- `server/routes.ts` - Backend API route for AI conversation analysis (`POST /api/analyze`)
+- `client/src/pages/home.tsx` - Main page with all state management (voice recording, AI mutations, health sync, cart)
+- `client/src/components/ipad-view.tsx` - Clinician iPad view with 4 tabs: Voice, Karte, History/Correlation, Health
+- `client/src/components/smartphone-view.tsx` - Patient smartphone view with 3 tabs: Timeline, Health Data, Shop
+- `client/src/lib/constants.ts` - Types (SummaryResult, KarteResult, CorrelationResult, TreatmentRecord), sample data, 8 treatment history records, status color utilities
+- `server/routes.ts` - Three API endpoints: POST /api/summarize, POST /api/analyze, POST /api/correlate
+
+## API Endpoints
+- `POST /api/summarize` - Quick AI summary of conversation (auto-triggered after voice input)
+- `POST /api/analyze` - Full karte generation with lifestyle/diet/supplement/self-care fields + product recommendations
+- `POST /api/correlate` - AI correlation analysis of 8-visit treatment history vs health data (HRV, steps, sleep)
 
 ## Tech Stack
 - React, TypeScript, Tailwind CSS, shadcn/ui
@@ -24,12 +29,14 @@ A healthcare demo application showing how AI can bridge the gap between clinicia
 - Anthropic AI (via Replit AI Integrations)
 - TanStack Query for data fetching
 - Lucide React for icons
+- Web Speech API for voice recording
 
 ## Fonts
 - Noto Sans JP (primary sans-serif, Japanese text support)
-- Space Mono (monospace, used for data displays)
+- Space Mono (monospace, used for data displays and labels)
 
 ## Theme
-- Dark mode by default (set via `class="dark"` on html element)
+- Dark mode only (set via `class="dark"` on html element)
 - Primary accent: Teal/cyan for healthcare branding
 - Uses shadcn's design token system for consistent theming
+- Deep navy background with teal primary color
