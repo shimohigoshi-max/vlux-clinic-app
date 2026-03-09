@@ -220,7 +220,7 @@ export default function Home() {
             <h1 className="font-mono text-[13px] font-bold text-primary tracking-[2px]" data-testid="text-app-title">
               CONNECTED HEALTHCARE
             </h1>
-            <p className="text-[9px] text-muted-foreground tracking-[3px]">ECOSYSTEM DEMO v2.2</p>
+            <p className="text-[9px] text-muted-foreground tracking-[3px]">ECOSYSTEM DEMO v2.3</p>
           </div>
         </div>
         <div className="flex gap-2">

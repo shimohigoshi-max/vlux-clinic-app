@@ -6,7 +6,7 @@ import {
   User, Footprints, Moon, Droplets, ShoppingCart,
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
-  Calendar, Ticket, Loader2, Activity,
+  Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
 } from "lucide-react";
 import type { KarteResult, Product } from "@/lib/constants";
 import {
@@ -210,19 +210,7 @@ export function SmartphoneView({
                       )}
                     </div>
 
-                    <div className="bg-gradient-to-br from-rose-500/10 to-rose-900/5 border border-dashed border-rose-400/20 rounded-md p-3.5 relative overflow-hidden" data-testid="card-coupon">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Ticket className="w-3.5 h-3.5 text-rose-400" />
-                        <span className="text-[11px] text-rose-400 font-bold">今月のご来院クーポン</span>
-                        <Badge variant="outline" className="ml-auto text-[9px] h-4 text-rose-400 border-rose-400/30">3/31まで</Badge>
-                      </div>
-                      <p className="text-xl font-bold font-mono text-rose-300 mb-1">¥500 OFF</p>
-                      <p className="text-[11px] text-muted-foreground/50 mb-2.5">次回施術料金より割引。1回限り有効。</p>
-                      <div className="bg-background rounded-md px-3 py-2 flex items-center justify-between">
-                        <span className="font-mono text-sm text-rose-400 tracking-[4px]">CHE-0309</span>
-                        <span className="text-[10px] text-muted-foreground/40">提示してご利用ください</span>
-                      </div>
-                    </div>
+                    <CouponWallet expanded />
 
                     <Button
                       className="w-full"
@@ -235,16 +223,7 @@ export function SmartphoneView({
                   </>
                 ) : (
                   <>
-                    <div className="bg-gradient-to-br from-rose-500/10 to-rose-900/5 border border-dashed border-rose-400/20 rounded-md p-3.5" data-testid="card-coupon-initial">
-                      <div className="flex items-center gap-1.5 mb-2">
-                        <Ticket className="w-3.5 h-3.5 text-rose-400" />
-                        <span className="text-[11px] text-rose-400 font-bold">今月のご来院クーポン</span>
-                        <Badge variant="outline" className="ml-auto text-[9px] h-4 text-rose-400 border-rose-400/30">3/31まで</Badge>
-                      </div>
-                      <p className="text-xl font-bold font-mono text-rose-300 mb-1">¥500 OFF</p>
-                      <p className="text-[11px] text-muted-foreground/50 mb-2.5">次回施術料金より割引。1回限り有効。</p>
-                      <div className="bg-background rounded-md px-3 py-2 font-mono text-sm text-rose-400 tracking-[4px]">CHE-0309</div>
-                    </div>
+                    <CouponWallet expanded={false} />
 
                     <Button
                       className="w-full"
@@ -402,6 +381,95 @@ export function SmartphoneView({
             )}
           </div>
         </ScrollArea>
+      </div>
+    </div>
+  );
+}
+
+function CouponWallet({ expanded }: { expanded: boolean }) {
+  return (
+    <div className="space-y-2" data-testid="coupon-wallet">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-1.5">
+          <Ticket className="w-3.5 h-3.5 text-amber-400" />
+          <span className="text-[11px] text-amber-400 font-bold">クーポンウォレット</span>
+        </div>
+        <span className="text-[10px] text-muted-foreground">通算 8回来院 · 有効 3枚</span>
+      </div>
+
+      <div className="bg-gradient-to-br from-rose-500/12 to-rose-900/8 border border-dashed border-rose-400/20 rounded-md p-3.5 relative overflow-hidden" data-testid="card-coupon-visit">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Ticket className="w-3 h-3 text-rose-400" />
+          <span className="text-[11px] text-rose-400 font-bold">
+            {expanded ? "今回の施術 来院クーポン" : "来院クーポン（毎回付与）"}
+          </span>
+          <Badge variant="outline" className="ml-auto text-[9px] h-4 text-rose-400 border-rose-400/30">
+            {expanded ? "NEW · 3/31まで" : "3/31まで"}
+          </Badge>
+        </div>
+        <p className="text-xl font-bold font-mono text-rose-300 mb-0.5">¥500 OFF</p>
+        <p className="text-[10px] text-muted-foreground/40 mb-2.5">
+          {expanded ? "次回施術料金より。毎回の来院でプレゼント。" : "次回施術料金より割引。"}
+        </p>
+        <div className="bg-background/60 rounded-md px-3 py-1.5 flex items-center justify-between">
+          <span className="font-mono text-[13px] text-rose-400 tracking-[4px]">CHE-0309</span>
+          <span className="text-[9px] text-muted-foreground/30">来院時に提示</span>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-amber-500/10 to-amber-900/7 border border-dashed border-amber-500/20 rounded-md p-3.5 relative overflow-hidden" data-testid="card-coupon-loyalty">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Trophy className="w-3 h-3 text-amber-400" />
+          <span className="text-[11px] text-amber-400 font-bold">継続通院 8回達成クーポン</span>
+          <Badge variant="outline" className="ml-auto text-[9px] h-4 text-amber-400 border-amber-400/30">4/30まで</Badge>
+        </div>
+        <p className="text-xl font-bold font-mono text-amber-300 mb-0.5">¥1,000 OFF</p>
+        <p className="text-[10px] text-muted-foreground/40 mb-2.5">
+          {expanded ? "10回達成ごとに自動付与。次は10回目で¥1,500 OFFへ。" : "次：10回で¥1,500 OFF"}
+        </p>
+        <div className="mb-2.5">
+          <div className="flex justify-between text-[9px] text-muted-foreground/40 mb-1">
+            <span>{expanded ? "次のマイルストーン：10回" : "次：10回で¥1,500 OFF"}</span>
+            <span>8 / 10回</span>
+          </div>
+          <div className="h-1.5 bg-background/60 rounded-full overflow-hidden">
+            <div className="h-full w-4/5 bg-gradient-to-r from-amber-500 to-amber-300 rounded-full" />
+          </div>
+        </div>
+        <div className="bg-background/60 rounded-md px-3 py-1.5 flex items-center justify-between">
+          <span className="font-mono text-[13px] text-amber-400 tracking-[4px]">VIP-0008</span>
+          <span className="text-[9px] text-muted-foreground/30">来院時に提示</span>
+        </div>
+      </div>
+
+      <div className="bg-gradient-to-br from-primary/10 to-primary/5 border border-dashed border-primary/20 rounded-md p-3.5 relative overflow-hidden" data-testid="card-coupon-referral">
+        <div className="flex items-center gap-1.5 mb-1.5">
+          <Users className="w-3 h-3 text-primary" />
+          <span className="text-[11px] text-primary font-bold">お友達紹介クーポン</span>
+          <Badge variant="outline" className="ml-auto text-[9px] h-4 text-primary border-primary/30">期限なし</Badge>
+        </div>
+        <div className="flex gap-2.5 mb-2.5">
+          <div className="flex-1 bg-background/60 rounded-md p-2 text-center">
+            <p className="text-[9px] text-muted-foreground/40 mb-0.5">紹介した方{expanded ? "に" : ""}</p>
+            <p className="text-base font-bold font-mono text-primary">¥500</p>
+            {expanded && <p className="text-[9px] text-muted-foreground/40">初回割引</p>}
+          </div>
+          <div className="flex items-center text-muted-foreground/30">+</div>
+          <div className="flex-1 bg-background/60 rounded-md p-2 text-center">
+            <p className="text-[9px] text-muted-foreground/40 mb-0.5">あなたにも</p>
+            <p className="text-base font-bold font-mono text-primary">¥500</p>
+            {expanded && <p className="text-[9px] text-muted-foreground/40">次回割引</p>}
+          </div>
+        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full border-primary/30 text-primary text-[12px] font-bold"
+          onClick={() => alert("デモ：LINEシェア / QRコード表示")}
+          data-testid="button-share-referral"
+        >
+          <Link className="w-3.5 h-3.5" /> 紹介リンクをシェアする
+        </Button>
       </div>
     </div>
   );

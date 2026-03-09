@@ -1,9 +1,9 @@
-# Connected Healthcare Ecosystem Demo v2.2
+# Connected Healthcare Ecosystem Demo v2.3
 
 ## Overview
 A healthcare demo application showing how AI can bridge the gap between clinicians and patients. Features two views:
 - **iPad View (Clinician Terminal)**: Voice recording (Web Speech API), AI-powered two-step analysis (auto-summarize + full karte generation), treatment history with AI correlation analysis, HealthKit sync simulation
-- **Smartphone View (Patient)**: Timeline with doctor's notes (lifestyle, diet, supplement, self-care advice), health metrics with progress bars, coupon system, booking button, shop with cart
+- **Smartphone View (Patient)**: Timeline with doctor's notes (lifestyle, diet, supplement, self-care advice), health metrics with progress bars, coupon wallet (3 types: visit, loyalty with progress bar, referral with share), booking button, shop with cart
 
 ## Architecture
 - **Frontend**: React + TypeScript with Tailwind CSS and shadcn/ui components
