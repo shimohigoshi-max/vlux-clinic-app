@@ -7,14 +7,17 @@ import {
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
-  Crown, Award, Leaf, TrendingUp, Target,
+  Crown, Award, Leaf, TrendingUp, Target, Map, MapPin,
+  ChevronDown, ChevronUp,
 } from "lucide-react";
 import type { KarteResult, Product, LifeAdvice } from "@/lib/constants";
 import {
   HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS, TREATMENT_HISTORY,
   RANKS, getRank, getNextRank,
+  PHASES, CLINIC_MASTER,
   statusColor, statusBg,
 } from "@/lib/constants";
+import { useState } from "react";
 
 const VISIT_COUNT = TREATMENT_HISTORY.length;
 
@@ -45,12 +48,14 @@ export function SmartphoneView({
   healthSynced, healthSyncing, onSyncHealth,
 }: SmartphoneViewProps) {
 
+  const [activeClinic, setActiveClinic] = useState("tanaka");
+
   return (
     <div className="max-w-[400px] mx-auto py-5 px-4 animate-fade-in">
       <div className="rounded-[2.5rem] border-[3px] border-border bg-background shadow-2xl overflow-hidden">
         <div className="bg-card/80 px-6 pt-3 pb-2 flex justify-between text-[10px] font-mono text-muted-foreground">
           <span data-testid="text-phone-time">9:41</span>
-          <span className="text-primary text-[9px]">Connected Health</span>
+          <span className="text-primary text-[9px] tracking-[1px]">VLUX</span>
           <span>100%</span>
         </div>
 
@@ -113,7 +118,7 @@ export function SmartphoneView({
           )}
 
           <div className="flex border-b border-border">
-            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "ショップ"], ["rank", "ランク"]] as const).map(([tab, label]) => (
+            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "VLUXストア"], ["rank", "VLUXスコア"], ["roadmap", "ロードマップ"]] as const).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => onPhoneTabChange(tab)}
@@ -135,6 +140,8 @@ export function SmartphoneView({
 
             {phoneTab === "timeline" && (
               <div className="space-y-2.5">
+                <ClinicBanner activeClinic={activeClinic} onSwitch={setActiveClinic} />
+
                 {patientSent && karte && !karte.error ? (
                   <>
                     <div className="bg-primary/5 border border-primary/20 rounded-md p-3.5 animate-slide-up" data-testid="card-today-treatment">
@@ -316,6 +323,8 @@ export function SmartphoneView({
             )}
 
             {phoneTab === "rank" && <RankTab />}
+
+            {phoneTab === "roadmap" && <RoadmapTab />}
           </div>
         </ScrollArea>
       </div>
@@ -656,6 +665,141 @@ function CouponWallet({ expanded }: { expanded: boolean }) {
         >
           <Link className="w-3.5 h-3.5" /> 紹介リンクをシェアする
         </Button>
+      </div>
+    </div>
+  );
+}
+
+function RoadmapTab() {
+  const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
+
+  const statusConfig: Record<string, { icon: typeof Check; badgeText: string; badgeClass: string }> = {
+    done: { icon: Check, badgeText: "完了済み", badgeClass: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
+    active: { icon: Loader2, badgeText: "開発中", badgeClass: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
+    pending: { icon: Clock, badgeText: "未着手", badgeClass: "bg-muted text-muted-foreground border-border" },
+    final: { icon: Sparkles, badgeText: "最終フェーズ", badgeClass: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
+  };
+
+  return (
+    <div className="space-y-3" data-testid="roadmap-tab">
+      <div className="text-center mb-2">
+        <p className="font-mono text-[10px] tracking-[3px] text-primary/60 mb-0.5">VLUX DEVELOPMENT</p>
+        <p className="text-[14px] font-bold text-foreground">開発ロードマップ</p>
+      </div>
+
+      {PHASES.map((phase, i) => {
+        const config = statusConfig[phase.status];
+        const StatusIcon = config.icon;
+        const isExpanded = expandedPhase === phase.id;
+        const isFinal = phase.status === "final";
+
+        return (
+          <div key={phase.id} className="flex gap-2.5" data-testid={`roadmap-phase-${phase.id}`}>
+            <div className="flex flex-col items-center" style={{ minWidth: 20 }}>
+              <div
+                className="w-3 h-3 rounded-full mt-1.5 shrink-0"
+                style={{
+                  background: phase.color,
+                  boxShadow: phase.status === "active" ? `0 0 8px ${phase.color}` : "none",
+                }}
+              />
+              {i < PHASES.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+            </div>
+            <button
+              className="flex-1 text-left rounded-xl p-3 mb-0.5 transition-all"
+              style={{
+                background: isFinal
+                  ? "linear-gradient(135deg,rgba(136,102,255,.12),rgba(60,40,140,.08))"
+                  : phase.status === "done"
+                  ? "rgba(0,200,150,.06)"
+                  : phase.status === "active"
+                  ? "rgba(0,115,230,.08)"
+                  : "rgba(255,255,255,.02)",
+                border: isFinal
+                  ? "1px solid rgba(136,102,255,.35)"
+                  : `1px solid ${phase.status === "done" ? "rgba(0,200,150,.2)" : phase.status === "active" ? "rgba(0,115,230,.25)" : "var(--border)"}`,
+                boxShadow: isFinal ? `0 0 20px ${phase.glow}, 0 0 40px rgba(136,102,255,.1)` : phase.status === "active" ? `0 0 12px ${phase.glow}` : "none",
+              }}
+              onClick={() => setExpandedPhase(isExpanded ? null : phase.id)}
+              data-testid={`roadmap-phase-btn-${phase.id}`}
+            >
+              <div className="flex items-center gap-2 mb-1.5">
+                <span className="font-mono text-[12px] font-bold" style={{ color: phase.color }}>
+                  {phase.title}
+                </span>
+                <Badge
+                  variant="outline"
+                  className={`text-[8px] h-4 ${config.badgeClass}`}
+                >
+                  <StatusIcon className={`w-2.5 h-2.5 mr-0.5 ${phase.status === "active" ? "animate-spin" : ""}`} />
+                  {config.badgeText}
+                </Badge>
+                {isExpanded ? (
+                  <ChevronUp className="w-3 h-3 text-muted-foreground ml-auto" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto" />
+                )}
+              </div>
+              <p className="text-[11px] font-semibold" style={{ color: phase.color }}>
+                {phase.sub}
+              </p>
+              <p className="text-[9px] text-muted-foreground mt-0.5">{phase.period}</p>
+
+              {isExpanded && (
+                <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: `${phase.color}20` }} data-testid={`roadmap-phase-details-${phase.id}`}>
+                  {phase.features.map((f, fi) => (
+                    <div key={fi} className="flex gap-1.5 mb-1">
+                      <Check className="w-3 h-3 mt-0.5 shrink-0" style={{ color: phase.color }} />
+                      <span className="text-[11px] text-foreground/60 leading-relaxed">{f}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </button>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function ClinicBanner({ activeClinic, onSwitch }: { activeClinic: string; onSwitch: (id: string) => void }) {
+  const clinics = Object.values(CLINIC_MASTER);
+  const switched = activeClinic !== "tanaka";
+
+  return (
+    <div className="mb-2.5" data-testid="clinic-banner">
+      <div className="bg-muted/30 border border-border rounded-xl p-3">
+        <p className="text-[9px] text-muted-foreground tracking-[2px] mb-2 flex items-center gap-1">
+          <MapPin className="w-3 h-3" /> 本日の来院先
+        </p>
+        <div className="flex gap-2 mb-2">
+          {clinics.map(c => (
+            <button
+              key={c.id}
+              onClick={() => onSwitch(c.id)}
+              className={`flex-1 rounded-lg p-2 text-center text-[11px] font-semibold transition-all ${
+                activeClinic === c.id
+                  ? "bg-primary/15 text-primary border border-primary/30"
+                  : "bg-muted/40 text-muted-foreground border border-transparent"
+              }`}
+              data-testid={`clinic-btn-${c.id}`}
+            >
+              {c.name} {activeClinic === c.id ? (
+                <Check className="w-3 h-3 inline ml-0.5" />
+              ) : null}
+            </button>
+          ))}
+        </div>
+        {switched && (
+          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2.5 flex gap-2 items-start animate-fade-in" data-testid="clinic-inherited-msg">
+            <TrendingUp className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
+            <div>
+              <p className="text-[10px] text-blue-400 font-semibold">前回来院（田中整骨院）のデータを引き継ぎました</p>
+              <p className="text-[9px] text-blue-400/60 mt-0.5">健康スコア・生活アドバイス・HealthKitデータは継続されます</p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

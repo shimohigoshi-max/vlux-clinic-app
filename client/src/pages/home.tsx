@@ -50,6 +50,23 @@ interface SpeechRecognitionAlternative {
   confidence: number;
 }
 
+function VLUXLogo() {
+  return (
+    <svg viewBox="0 0 120 40" className="w-12 h-10">
+      <defs>
+        <linearGradient id="vluxGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+          <stop offset="0%" stopColor="#00C896" />
+          <stop offset="50%" stopColor="#0073E6" />
+          <stop offset="100%" stopColor="#8866FF" />
+        </linearGradient>
+      </defs>
+      <text x="0" y="32" fontFamily="Space Mono, monospace" fontSize="36" fontWeight="700" fill="url(#vluxGrad)" letterSpacing="4">
+        VLUX
+      </text>
+    </svg>
+  );
+}
+
 export default function Home() {
   const [screen, setScreen] = useState<"ipad" | "smartphone">("ipad");
   const [ipadTab, setIpadTab] = useState("voice");
@@ -217,14 +234,12 @@ export default function Home() {
     <div className="min-h-screen bg-background text-foreground font-sans">
       <header className="bg-gradient-to-r from-card to-background border-b border-border px-4 sm:px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-chart-3 flex items-center justify-center">
-            <Stethoscope className="w-5 h-5 text-primary-foreground" />
-          </div>
+          <VLUXLogo />
           <div>
-            <h1 className="font-mono text-[13px] font-bold text-primary tracking-[2px]" data-testid="text-app-title">
-              CONNECTED HEALTHCARE
+            <h1 className="font-mono text-[15px] font-bold tracking-[4px]" data-testid="text-app-title">
+              <span className="bg-gradient-to-r from-primary via-chart-3 to-purple-400 bg-clip-text text-transparent">VLUX</span>
             </h1>
-            <p className="text-[9px] text-muted-foreground tracking-[3px]">ECOSYSTEM DEMO v2.6</p>
+            <p className="text-[9px] text-muted-foreground tracking-[3px]">CONNECTED HEALTHCARE v3.1</p>
           </div>
         </div>
         <div className="flex gap-2">

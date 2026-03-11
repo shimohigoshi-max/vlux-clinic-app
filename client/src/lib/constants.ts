@@ -187,6 +187,42 @@ export const PAST_TIMELINE_ITEMS = [
   { date: "1ヶ月前", msg: "初診時より歩行バランスが15%改善しています。" },
 ];
 
+export interface Phase {
+  id: number;
+  status: "done" | "active" | "pending" | "final";
+  title: string;
+  sub: string;
+  period: string;
+  color: string;
+  glow: string;
+  features: string[];
+}
+
+export const PHASES: Phase[] = [
+  { id: 0, status: "done", title: "Phase 0", sub: "ビジネスモデル設計・デモモック", period: "2025年10月〜2026年3月", color: "#00c896", glow: "#00c89640", features: ["ビジネスモデル設計", "デモアプリ開発（本画面）", "整骨院ヒアリング", "技術選定・アーキテクチャ設計", "投資家向けピッチ資料作成"] },
+  { id: 1, status: "active", title: "Phase 1", sub: "3医院テスト・認証・AI連携", period: "2026年4月〜7月", color: "#0073e6", glow: "#0073e640", features: ["3医院でのパイロット導入", "認証・セキュリティ基盤構築", "AI会話解析の精度向上", "HealthKit実連携", "患者フィードバック収集"] },
+  { id: 2, status: "pending", title: "Phase 2", sub: "20医院・クーポン・小規模EC", period: "2026年8月〜12月", color: "#556677", glow: "#55667740", features: ["20医院への展開", "クーポン・ポイント基盤", "EC機能（小規模）", "院間データ共有の設計", "収益モデル検証"] },
+  { id: 3, status: "pending", title: "Phase 3", sub: "全機能開放・ランク育成", period: "2027年1月〜6月", color: "#556677", glow: "#55667740", features: ["全機能リリース", "ランク制度・ロイヤルティ育成", "EC本格稼働", "100医院突破目標", "データ分析ダッシュボード"] },
+  { id: 4, status: "final", title: "Phase 4", sub: "750万人データプラットフォーム", period: "2027年7月〜", color: "#8866ff", glow: "#8866ff40", features: ["7,500院ネットワーク", "750万人の健康データ基盤", "保険・製薬・金融へのデータ提供", "院跨ぎデータ継承", "ISMS・SOC2取得"] },
+];
+
+export interface Clinic {
+  id: string;
+  name: string;
+  doctor: string;
+  area: string;
+}
+
+export const CLINIC_MASTER: Record<string, Clinic> = {
+  tanaka: { id: "tanaka", name: "田中整骨院", doctor: "田中院長", area: "福岡市博多区" },
+  sakai: { id: "sakai", name: "堺整骨院グループ", doctor: "堺院長", area: "福岡市中央区" },
+};
+
+export const REV_UNIT_PRICE = 3500;
+export const REV_CONV_RATE = 0.25;
+export const REV_SHARE_RATE = 0.08;
+export const SAAS_MONTHLY_FEE = 50000;
+
 export function statusColor(value: number, good: number, warn: number): string {
   if (value >= good) return "text-emerald-400";
   if (value >= warn) return "text-amber-400";
