@@ -13,7 +13,7 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 
 ## Key Files
 - `client/src/pages/home.tsx` - Main page with all state management (voice recording, AI mutations, health sync, cart), VLUXLogo component
-- `client/src/components/ipad-view.tsx` - Clinician iPad view with 5 tabs: Voice, Karte, History/Correlation, Health, 通販売上 (EC Sales Dashboard)
+- `client/src/components/ipad-view.tsx` - Clinician iPad view with 5 tabs: 音声入力 (Voice), カルテ履歴 (Karte History - expandable cards with formal karte + AI summary, newest first), 履歴・相関分析 (History/Correlation), 健康データ (Health), 通販売上 (EC Sales Dashboard)
 - `client/src/components/smartphone-view.tsx` - Patient smartphone view with 4 tabs: タイムライン, 健康データ, VLUXストア (rank-based pricing), VLUXスコア (membership card). Includes ClinicBanner for cross-clinic switching.
 - `client/src/lib/constants.ts` - Types, sample data, 8 treatment history records, 5-tier rank system, status color utilities, PHASES (5 phases), CLINIC_MASTER (2 clinics), revenue constants
 - `server/routes.ts` - Three API endpoints: POST /api/summarize, POST /api/analyze, POST /api/correlate

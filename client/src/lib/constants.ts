@@ -63,6 +63,13 @@ export interface KarteResult {
   error?: string;
 }
 
+export interface KarteHistoryEntry {
+  id: string;
+  createdAt: string;
+  summary: SummaryResult | null;
+  karte: KarteResult;
+}
+
 export interface Correlation {
   title: string;
   finding: string;

@@ -10,11 +10,11 @@ import {
   BarChart3, Heart, Footprints, Moon, Search,
   AlertTriangle, TrendingUp, TrendingDown, Minus,
   ChevronRight, MapPin, GlassWater, CircleDot,
-  Users, ShoppingCart, Package, Calendar,
+  Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
 } from "lucide-react";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
-  Product, TreatmentRecord,
+  Product, TreatmentRecord, KarteHistoryEntry,
 } from "@/lib/constants";
 import {
   DEMO_PRODUCTS, TREATMENT_HISTORY, HEALTH_DATA,
@@ -44,6 +44,7 @@ interface IPadViewProps {
   healthSyncing: boolean;
   onSyncHealth: () => void;
   onSendToPatient: () => void;
+  karteHistory: KarteHistoryEntry[];
 }
 
 const PRODUCT_ICONS: Record<string, typeof Shield> = {
@@ -60,6 +61,7 @@ export function IPadView(props: IPadViewProps) {
     summary, isSummarizing, karte, isAnalyzing, onDoKarte,
     correlationResult, isCorrelating, onDoCorrelation,
     healthSynced, healthSyncing, onSyncHealth, onSendToPatient,
+    karteHistory,
   } = props;
 
   const recProds = karte?.recommended_products
@@ -70,7 +72,7 @@ export function IPadView(props: IPadViewProps) {
 
   const tabs = [
     { id: "voice", label: "音声入力", icon: Mic },
-    { id: "karte", label: "カルテ生成", icon: FileText },
+    { id: "karte", label: "カルテ履歴", icon: FileText },
     { id: "history", label: "履歴・相関分析", icon: BarChart3 },
     ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart }] : []),
     { id: "ec-sales", label: "通販売上", icon: ShoppingCart },
@@ -219,83 +221,10 @@ export function IPadView(props: IPadViewProps) {
       )}
 
       {ipadTab === "karte" && (
-        <div>
-          {!karte && (
-            <div className="text-center py-16">
-              <FileText className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
-              <p className="text-[12px] text-muted-foreground/50" data-testid="text-empty-karte">音声入力タブで会話を入力しカルテを生成してください</p>
-            </div>
-          )}
-          {karte?.error && (
-            <div className="text-center py-10">
-              <p className="text-destructive text-[12px]" data-testid="text-karte-error">エラーが発生しました。</p>
-            </div>
-          )}
-          {karte && !karte.error && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-5 animate-slide-up">
-              <Card className="p-4 space-y-3.5" data-testid="panel-karte-result">
-                {([
-                  ["主訴", karte.chief_complaint],
-                  ["所見", karte.findings],
-                  ["処置内容", karte.treatment],
-                ] as [string, string | undefined][]).map(([k, v]) => (
-                  <div key={k}>
-                    <p className="text-[9px] font-mono text-primary tracking-[2px] mb-1">{k}</p>
-                    <p className="text-[13px] text-foreground/70 leading-relaxed whitespace-pre-line">{v}</p>
-                  </div>
-                ))}
-                {karte.advice && karte.advice.length > 0 && (
-                  <div>
-                    <p className="text-[9px] font-mono text-primary tracking-[2px] mb-1">アドバイス</p>
-                    {karte.advice.map((a, i) => (
-                      <div key={i} className="flex items-start gap-1.5 mb-1">
-                        <Check className="w-3 h-3 text-primary mt-0.5 shrink-0" />
-                        <span className="text-[12px] text-foreground/70 leading-relaxed">{a}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <div className="space-y-3">
-                <Card className="p-4 border-primary/20" data-testid="panel-recommendations">
-                  <p className="text-[9px] font-mono text-primary tracking-[2px] mb-2">AI レコメンド商品</p>
-                  {karte.reason && <p className="text-[11px] text-muted-foreground leading-relaxed mb-3">{karte.reason}</p>}
-                  {recProds.map(p => {
-                    const Icon = PRODUCT_ICONS[p.id] || Shield;
-                    return (
-                      <div key={p.id} className="flex gap-2.5 mb-3 bg-primary/5 rounded-md p-2.5" data-testid={`card-rec-product-${p.id}`}>
-                        <div className="w-10 h-10 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
-                          <Icon className="w-5 h-5 text-primary" />
-                        </div>
-                        <div>
-                          <p className="text-[13px] text-foreground/90">{p.name}</p>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">{p.desc}</p>
-                          <p className="text-[13px] text-primary font-mono font-bold mt-1">¥{p.price.toLocaleString()}</p>
-                        </div>
-                      </div>
-                    );
-                  })}
-                  {karte.patient_message && (
-                    <div className="mt-3 p-2.5 bg-chart-3/10 border border-chart-3/20 rounded-md">
-                      <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-1">患者へのメッセージ</p>
-                      <p className="text-[12px] text-foreground/60 leading-relaxed">{karte.patient_message}</p>
-                    </div>
-                  )}
-                </Card>
-                <Button
-                  variant="outline"
-                  className="w-full"
-                  size="lg"
-                  onClick={onSendToPatient}
-                  data-testid="button-send-to-patient"
-                >
-                  <Send className="w-4 h-4" /> 患者スマホへ送信
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
+        <KarteHistoryTab
+          karteHistory={karteHistory}
+          onSendToPatient={onSendToPatient}
+        />
       )}
 
       {ipadTab === "history" && (
@@ -561,6 +490,167 @@ export function IPadView(props: IPadViewProps) {
   );
 }
 
+
+function KarteHistoryTab({ karteHistory, onSendToPatient }: { karteHistory: KarteHistoryEntry[]; onSendToPatient: () => void }) {
+  const latestId = karteHistory.length > 0 ? karteHistory[0].id : null;
+  const [expandedId, setExpandedId] = useState<string | null>(latestId);
+  const [prevLatestId, setPrevLatestId] = useState<string | null>(latestId);
+  if (latestId !== prevLatestId) {
+    setPrevLatestId(latestId);
+    setExpandedId(latestId);
+  }
+
+  if (karteHistory.length === 0) {
+    return (
+      <div className="text-center py-16">
+        <FileText className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+        <p className="text-[12px] text-muted-foreground/50" data-testid="text-empty-karte">音声入力タブで会話を入力しカルテを生成してください</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid="karte-history-tab">
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
+          カルテ履歴（{karteHistory.length}件）
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={onSendToPatient}
+          data-testid="button-send-to-patient"
+        >
+          <Send className="w-3.5 h-3.5" /> 患者スマホへ送信
+        </Button>
+      </div>
+
+      <ScrollArea className="h-[560px]">
+        <div className="space-y-3 pr-2">
+          {karteHistory.map((entry, idx) => {
+            const isExpanded = expandedId === entry.id;
+            const k = entry.karte;
+            const s = entry.summary;
+            const entryProds = k.recommended_products
+              ? DEMO_PRODUCTS.filter(p => k.recommended_products!.includes(p.id))
+              : DEMO_PRODUCTS.slice(0, 2);
+
+            return (
+              <Card
+                key={entry.id}
+                className={`border transition-all ${idx === 0 ? "border-primary/30" : "border-border"}`}
+                style={{ background: idx === 0 ? "rgba(0,200,150,.03)" : "rgba(255,255,255,.02)" }}
+                data-testid={`karte-history-entry-${entry.id}`}
+              >
+                <button
+                  className="w-full text-left px-4 py-3 flex items-center gap-3"
+                  onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                  data-testid={`karte-history-toggle-${entry.id}`}
+                >
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-muted-foreground" />
+                    <span className="font-mono text-[12px] text-foreground/70">{entry.createdAt}</span>
+                  </div>
+                  {idx === 0 && (
+                    <Badge className="bg-primary/20 text-primary border-primary/30 text-[9px]">最新</Badge>
+                  )}
+                  <span className="text-[12px] text-foreground/60 flex-1 truncate">
+                    {k.chief_complaint || "カルテ"}
+                  </span>
+                  {isExpanded ? (
+                    <ChevronUp className="w-4 h-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                  )}
+                </button>
+
+                {isExpanded && (
+                  <div className="px-4 pb-4 animate-slide-up">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div className="space-y-3">
+                        <p className="text-[9px] font-mono text-primary tracking-[3px] border-b border-primary/20 pb-1">正式カルテ</p>
+                        {([
+                          ["主訴", k.chief_complaint],
+                          ["所見", k.findings],
+                          ["処置内容", k.treatment],
+                        ] as [string, string | undefined][]).map(([label, val]) => val ? (
+                          <div key={label}>
+                            <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-0.5">{label}</p>
+                            <p className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-line">{val}</p>
+                          </div>
+                        ) : null)}
+                        {k.advice && k.advice.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-0.5">アドバイス</p>
+                            {k.advice.map((a, i) => (
+                              <div key={i} className="flex items-start gap-1.5 mb-0.5">
+                                <Check className="w-3 h-3 text-primary mt-0.5 shrink-0" />
+                                <span className="text-[11px] text-foreground/60 leading-relaxed">{a}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {k.patient_message && (
+                          <div className="p-2.5 bg-chart-3/10 border border-chart-3/20 rounded-md">
+                            <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-1">患者へのメッセージ</p>
+                            <p className="text-[11px] text-foreground/60 leading-relaxed">{k.patient_message}</p>
+                          </div>
+                        )}
+                        {entryProds.length > 0 && (
+                          <div>
+                            <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">AI レコメンド商品</p>
+                            {k.reason && <p className="text-[10px] text-muted-foreground leading-relaxed mb-2">{k.reason}</p>}
+                            {entryProds.map(p => {
+                              const Icon = PRODUCT_ICONS[p.id] || Shield;
+                              return (
+                                <div key={p.id} className="flex gap-2 mb-2 bg-primary/5 rounded-md p-2">
+                                  <div className="w-8 h-8 rounded bg-primary/15 flex items-center justify-center shrink-0">
+                                    <Icon className="w-4 h-4 text-primary" />
+                                  </div>
+                                  <div>
+                                    <p className="text-[11px] text-foreground/80">{p.name}</p>
+                                    <p className="text-[11px] text-primary font-mono font-bold">¥{p.price.toLocaleString()}</p>
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="space-y-3">
+                        <p className="text-[9px] font-mono text-chart-3 tracking-[3px] border-b border-chart-3/20 pb-1">AI 要点整理</p>
+                        {s && !s.error ? (
+                          <div className="space-y-2.5">
+                            {([
+                              ["主訴", s.chief_complaint],
+                              ["主要症状", s.key_symptoms?.join(" / ")],
+                              ["生活習慣の問題", s.lifestyle_issues?.join(" / ")],
+                              ["処置内容", s.treatment_done],
+                              ["ホームケア", s.home_care?.join(" / ")],
+                              ["次回注意点", s.follow_up],
+                            ] as [string, string | undefined][]).map(([label, val]) => val ? (
+                              <div key={label}>
+                                <p className="text-[9px] font-mono text-chart-3/70 tracking-[2px] mb-0.5">{label}</p>
+                                <p className="text-[12px] text-foreground/60 leading-relaxed">{val}</p>
+                              </div>
+                            ) : null)}
+                          </div>
+                        ) : (
+                          <p className="text-[11px] text-muted-foreground/50 py-4 text-center">要点整理データなし</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </Card>
+            );
+          })}
+        </div>
+      </ScrollArea>
+    </div>
+  );
+}
 
 function ECSalesTab() {
   const [period, setPeriod] = useState<"today" | "week" | "month">("month");

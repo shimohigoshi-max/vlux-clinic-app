@@ -5,7 +5,7 @@ import { IPadView } from "@/components/ipad-view";
 import { SmartphoneView } from "@/components/smartphone-view";
 import { apiRequest } from "@/lib/queryClient";
 import type {
-  SummaryResult, KarteResult, CorrelationResult, Product,
+  SummaryResult, KarteResult, CorrelationResult, Product, KarteHistoryEntry,
 } from "@/lib/constants";
 import {
   SAMPLE_CONVERSATION, DEMO_PRODUCTS, TREATMENT_HISTORY, HEALTH_DATA,
@@ -85,6 +85,7 @@ export default function Home() {
   const [cartMsg, setCartMsg] = useState("");
   const [correlationResult, setCorrelationResult] = useState<CorrelationResult | null>(null);
   const [isCorrelating, setIsCorrelating] = useState(false);
+  const [karteHistory, setKarteHistory] = useState<KarteHistoryEntry[]>([]);
 
   const recRef = useRef<SpeechRecognition | null>(null);
   const tRef = useRef("");
@@ -169,12 +170,21 @@ export default function Home() {
       });
       const data = await res.json();
       setKarte(data);
+      if (!data.error) {
+        const entry: KarteHistoryEntry = {
+          id: Date.now().toString(),
+          createdAt: new Date().toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }),
+          summary,
+          karte: data,
+        };
+        setKarteHistory(prev => [entry, ...prev]);
+      }
       setIpadTab("karte");
     } catch {
       setKarte({ error: "エラーが発生しました。" });
     }
     setIsAnalyzing(false);
-  }, [transcript, healthSynced]);
+  }, [transcript, healthSynced, summary]);
 
   const doCorrelation = useCallback(async () => {
     setIsCorrelating(true);
@@ -289,6 +299,7 @@ export default function Home() {
           healthSyncing={healthSyncing}
           onSyncHealth={syncHealth}
           onSendToPatient={sendToPatient}
+          karteHistory={karteHistory}
         />
       )}
 
