@@ -10,8 +10,7 @@ import {
   BarChart3, Heart, Footprints, Moon, Search,
   AlertTriangle, TrendingUp, TrendingDown, Minus,
   ChevronRight, MapPin, GlassWater, CircleDot,
-  Satellite, DollarSign, Building2, Pill, Landmark, Dumbbell,
-  ShieldCheck, ArrowUpDown, Users, Database, Crown,
+  Users, ShoppingCart, Package, Calendar,
 } from "lucide-react";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
@@ -19,10 +18,10 @@ import type {
 } from "@/lib/constants";
 import {
   DEMO_PRODUCTS, TREATMENT_HISTORY, HEALTH_DATA,
-  REV_UNIT_PRICE, REV_CONV_RATE, REV_SHARE_RATE, SAAS_MONTHLY_FEE,
+  REV_CONV_RATE,
   statusColor, statusBg, genWeeklyData,
 } from "@/lib/constants";
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo } from "react";
 
 interface IPadViewProps {
   ipadTab: string;
@@ -74,8 +73,7 @@ export function IPadView(props: IPadViewProps) {
     { id: "karte", label: "カルテ生成", icon: FileText },
     { id: "history", label: "履歴・相関分析", icon: BarChart3 },
     ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart }] : []),
-    { id: "platform", label: "データ基盤", icon: Satellite },
-    { id: "revenue", label: "収益モデル", icon: DollarSign },
+    { id: "ec-sales", label: "通販売上", icon: ShoppingCart },
   ];
 
   return (
@@ -558,317 +556,202 @@ export function IPadView(props: IPadViewProps) {
         </div>
       )}
 
-      {ipadTab === "platform" && <DataPlatformTab />}
-
-      {ipadTab === "revenue" && <RevenueModelTab />}
+      {ipadTab === "ec-sales" && <ECSalesTab />}
     </div>
   );
 }
 
-function AnimatedCounter({ target, suffix = "" }: { target: number; suffix?: string }) {
-  const [count, setCount] = useState(0);
-  useEffect(() => {
-    let frame: number;
-    const duration = 1500;
-    const start = performance.now();
-    const animate = (now: number) => {
-      const elapsed = now - start;
-      const progress = Math.min(elapsed / duration, 1);
-      const eased = 1 - Math.pow(1 - progress, 3);
-      setCount(Math.floor(target * eased));
-      if (progress < 1) frame = requestAnimationFrame(animate);
-    };
-    frame = requestAnimationFrame(animate);
-    return () => cancelAnimationFrame(frame);
-  }, [target]);
-  return <span className="font-mono">{count.toLocaleString()}{suffix}</span>;
-}
 
-function DataPlatformTab() {
-  const [hoveredQuadrant, setHoveredQuadrant] = useState<string | null>(null);
+function ECSalesTab() {
+  const [period, setPeriod] = useState<"today" | "week" | "month">("month");
 
-  const quadrants = [
-    { id: "insurance", icon: Building2, label: "保険会社", color: "#0073e6", sub: "腰痛リスク予測モデル", detail: "過去の治療データと生活習慣から、腰痛リスクを事前に予測。保険料のパーソナライズに活用。" },
-    { id: "pharma", icon: Pill, label: "製薬・サプリ", color: "#00c896", sub: "実証データで新商品開発", detail: "750万人の実データに基づくサプリメント効果検証。臨床エビデンスの構築を支援。" },
-    { id: "finance", icon: Landmark, label: "金融機関", color: "#d4a030", sub: "健康スコア連動型金利", detail: "VLUXスコアと連動した金利優遇プログラム。健康維持のインセンティブ設計。" },
-    { id: "fitness", icon: Dumbbell, label: "フィットネス", color: "#c090ff", sub: "未病顧客へのターゲット広告", detail: "整骨院データから「運動不足だが健康意識が高い層」を特定。高精度な広告配信。" },
+  const salesData = {
+    today: {
+      orders: 3, revenue: 12740, avgPrice: 4247, topProduct: "3D骨盤サポートベルト",
+      items: [
+        { time: "09:15", patient: "田中太郎", product: "リカバリーMag", qty: 1, price: 3280, via: "AI推薦" },
+        { time: "11:42", patient: "鈴木花子", product: "3D骨盤サポートベルト", qty: 1, price: 4980, via: "先生推薦" },
+        { time: "14:30", patient: "佐藤健一", product: "電解質ウォーター", qty: 2, price: 4480, via: "リピート" },
+      ],
+    },
+    week: {
+      orders: 18, revenue: 68400, avgPrice: 3800, topProduct: "リカバリーMag",
+      items: [
+        { time: "3/10", patient: "田中太郎 他2名", product: "リカバリーMag", qty: 4, price: 13120, via: "AI推薦" },
+        { time: "3/9", patient: "山田美咲 他1名", product: "3D骨盤サポートベルト", qty: 3, price: 14940, via: "先生推薦" },
+        { time: "3/8", patient: "佐藤健一 他3名", product: "電解質ウォーター", qty: 6, price: 14880, via: "リピート" },
+        { time: "3/7", patient: "高橋雄大 他1名", product: "腰椎クッション", qty: 2, price: 11960, via: "AI推薦" },
+        { time: "3/6", patient: "渡辺麻衣 他2名", product: "リカバリーMag", qty: 3, price: 9840, via: "先生推薦" },
+      ],
+    },
+    month: {
+      orders: 67, revenue: 254600, avgPrice: 3800, topProduct: "リカバリーMag",
+      items: [
+        { time: "第2週", patient: "18件", product: "リカバリーMag", qty: 22, price: 72160, via: "AI推薦" },
+        { time: "第2週", patient: "12件", product: "3D骨盤サポートベルト", qty: 15, price: 74700, via: "先生推薦" },
+        { time: "第1週", patient: "15件", product: "電解質ウォーター", qty: 18, price: 44640, via: "リピート" },
+        { time: "第1週", patient: "8件", product: "腰椎クッション", qty: 12, price: 71760, via: "AI推薦" },
+      ],
+    },
+  };
+
+  const current = salesData[period];
+
+  const channelBreakdown = [
+    { label: "AI推薦", pct: 45, color: "#0073e6", amount: Math.round(current.revenue * 0.45) },
+    { label: "先生推薦", pct: 35, color: "#00c896", amount: Math.round(current.revenue * 0.35) },
+    { label: "リピート", pct: 20, color: "#d4a030", amount: Math.round(current.revenue * 0.20) },
   ];
 
-  const complianceItems = [
-    { label: "個人情報保護法準拠設計", done: true },
-    { label: "医療情報二次利用同意フロー", done: true },
-    { label: "ISMS取得予定（Phase 4）", done: false },
-    { label: "SOC2準拠予定（Phase 4）", done: false },
+  const productRanking = [
+    { name: "リカバリーMag", qty: period === "today" ? 1 : period === "week" ? 7 : 28, revenue: period === "today" ? 3280 : period === "week" ? 22960 : 91840, trend: "up" as const },
+    { name: "3D骨盤サポートベルト", qty: period === "today" ? 1 : period === "week" ? 5 : 18, revenue: period === "today" ? 4980 : period === "week" ? 24900 : 89640, trend: "up" as const },
+    { name: "電解質ウォーター", qty: period === "today" ? 2 : period === "week" ? 8 : 24, revenue: period === "today" ? 4480 : period === "week" ? 19840 : 59520, trend: "flat" as const },
+    { name: "腰椎クッション", qty: period === "today" ? 0 : period === "week" ? 3 : 12, revenue: period === "today" ? 0 : period === "week" ? 17940 : 71760, trend: "down" as const },
   ];
 
   return (
-    <div className="space-y-5" data-testid="platform-tab">
-      <div className="text-center mb-1">
-        <p className="font-mono text-[10px] tracking-[3px] text-purple-400/60 mb-0.5">PHASE 4 VISION</p>
-        <p className="text-lg font-bold text-foreground">データプラットフォーム構想</p>
+    <div className="space-y-4" data-testid="ec-sales-tab">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="font-mono text-[10px] tracking-[3px] text-primary/60 mb-0.5">EC SALES DASHBOARD</p>
+          <p className="text-lg font-bold text-foreground">通販売上管理</p>
+        </div>
+        <div className="flex rounded-lg border border-border overflow-hidden">
+          {([["today", "今日"], ["week", "週間"], ["month", "月間"]] as const).map(([id, label]) => (
+            <button
+              key={id}
+              onClick={() => setPeriod(id)}
+              className={`px-3 py-1.5 text-[11px] transition-colors ${
+                period === id
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+              data-testid={`ec-period-${id}`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
       </div>
 
-      <div className="grid grid-cols-3 gap-3" data-testid="platform-scale-meters">
-        {[
-          { label: "参加院数", target: 7500, suffix: "院", color: "#0073e6" },
-          { label: "登録患者数", target: 7500000, suffix: "人", color: "#00c896" },
-          { label: "蓄積データ件数", target: 2800000000, suffix: "件", color: "#c090ff" },
-        ].map(m => (
-          <Card key={m.label} className="p-4 text-center border-border" style={{ background: "rgba(255,255,255,.02)" }}>
-            <p className="text-[9px] text-muted-foreground tracking-wider mb-1">{m.label}</p>
-            <p className="text-xl font-bold" style={{ color: m.color }}>
-              <AnimatedCounter target={m.target} />
-            </p>
-            <p className="text-[10px]" style={{ color: m.color }}>{m.suffix}（目標）</p>
+      <div className="grid grid-cols-4 gap-3" data-testid="ec-kpi-cards">
+        <Card className="p-3 border-border" style={{ background: "rgba(255,255,255,.03)" }}>
+          <p className="text-[9px] text-muted-foreground mb-1">売上</p>
+          <p className="font-mono text-lg text-primary font-bold" data-testid="text-ec-revenue">
+            ¥{current.revenue.toLocaleString()}
+          </p>
+        </Card>
+        <Card className="p-3 border-border" style={{ background: "rgba(255,255,255,.03)" }}>
+          <p className="text-[9px] text-muted-foreground mb-1">注文数</p>
+          <p className="font-mono text-lg text-foreground font-bold" data-testid="text-ec-orders">
+            {current.orders}件
+          </p>
+        </Card>
+        <Card className="p-3 border-border" style={{ background: "rgba(255,255,255,.03)" }}>
+          <p className="text-[9px] text-muted-foreground mb-1">平均単価</p>
+          <p className="font-mono text-lg text-foreground font-bold">
+            ¥{current.avgPrice.toLocaleString()}
+          </p>
+        </Card>
+        <Card className="p-3 border-border" style={{ background: "rgba(0,200,150,.06)", borderColor: "rgba(0,200,150,.2)" }}>
+          <p className="text-[9px] text-emerald-400 mb-1">購入転換率</p>
+          <p className="font-mono text-lg text-emerald-400 font-bold">
+            {(REV_CONV_RATE * 100)}%
+          </p>
+        </Card>
+      </div>
+
+      <div className="grid grid-cols-3 gap-3">
+        <div className="col-span-2">
+          <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2 flex items-center gap-1.5">
+            <Package className="w-3.5 h-3.5" /> 商品別ランキング
+          </p>
+          <Card className="border-border" style={{ background: "rgba(255,255,255,.02)" }}>
+            {productRanking.map((p, i) => (
+              <div
+                key={p.name}
+                className={`flex items-center gap-3 px-4 py-2.5 ${i < productRanking.length - 1 ? "border-b border-border" : ""}`}
+                data-testid={`ec-product-rank-${i}`}
+              >
+                <span className={`font-mono text-[13px] font-bold w-5 ${i === 0 ? "text-amber-400" : i === 1 ? "text-foreground/60" : "text-muted-foreground"}`}>
+                  {i + 1}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] text-foreground font-medium truncate">{p.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{p.qty}個販売</p>
+                </div>
+                <div className="text-right">
+                  <p className="font-mono text-[12px] text-foreground font-bold">¥{p.revenue.toLocaleString()}</p>
+                  {p.trend === "up" && <TrendingUp className="w-3 h-3 text-emerald-400 ml-auto" />}
+                  {p.trend === "down" && <TrendingDown className="w-3 h-3 text-red-400 ml-auto" />}
+                  {p.trend === "flat" && <Minus className="w-3 h-3 text-muted-foreground ml-auto" />}
+                </div>
+              </div>
+            ))}
           </Card>
-        ))}
+        </div>
+
+        <div>
+          <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2 flex items-center gap-1.5">
+            <BarChart3 className="w-3.5 h-3.5" /> 経路別内訳
+          </p>
+          <Card className="p-3 border-border space-y-3" style={{ background: "rgba(255,255,255,.02)" }}>
+            {channelBreakdown.map(ch => (
+              <div key={ch.label} data-testid={`ec-channel-${ch.label}`}>
+                <div className="flex justify-between mb-1">
+                  <span className="text-[11px]" style={{ color: ch.color }}>{ch.label}</span>
+                  <span className="font-mono text-[11px] text-foreground/70">{ch.pct}%</span>
+                </div>
+                <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-500"
+                    style={{ width: `${ch.pct}%`, background: ch.color }}
+                  />
+                </div>
+                <p className="font-mono text-[10px] text-muted-foreground mt-0.5">
+                  ¥{ch.amount.toLocaleString()}
+                </p>
+              </div>
+            ))}
+          </Card>
+        </div>
       </div>
 
       <div>
-        <p className="text-[10px] text-muted-foreground tracking-[2px] mb-3">データ価値マップ</p>
-        <div className="grid grid-cols-2 gap-3" data-testid="platform-value-map">
-          {quadrants.map(q => {
-            const isHovered = hoveredQuadrant === q.id;
-            return (
-              <button
-                key={q.id}
-                className="text-left rounded-xl p-4 transition-all"
-                style={{
-                  background: isHovered ? `rgba(${q.color === "#0073e6" ? "0,115,230" : q.color === "#00c896" ? "0,200,150" : q.color === "#d4a030" ? "212,160,48" : "192,144,255"},.12)` : "rgba(255,255,255,.03)",
-                  border: `1px solid ${isHovered ? q.color + "50" : "var(--border)"}`,
-                  boxShadow: isHovered ? `0 0 16px ${q.color}25` : "none",
-                }}
-                onMouseEnter={() => setHoveredQuadrant(q.id)}
-                onMouseLeave={() => setHoveredQuadrant(null)}
-                onClick={() => setHoveredQuadrant(isHovered ? null : q.id)}
-                data-testid={`platform-quadrant-${q.id}`}
-              >
-                <q.icon className="w-5 h-5 mb-2" style={{ color: q.color }} />
-                <p className="text-[12px] font-bold" style={{ color: q.color }}>{q.label}</p>
-                <p className="text-[11px] text-foreground/60 mt-0.5">{q.sub}</p>
-                {isHovered && (
-                  <p className="text-[10px] text-foreground/40 mt-2 leading-relaxed animate-fade-in">
-                    {q.detail}
-                  </p>
-                )}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      <Card className="p-4 border-border" style={{ background: "rgba(136,102,255,.06)", borderColor: "rgba(136,102,255,.2)" }} data-testid="platform-inheritance">
-        <p className="text-[10px] text-purple-400 tracking-[2px] mb-2 flex items-center gap-1.5">
-          <Database className="w-3.5 h-3.5" /> 院跨ぎデータ継承
+        <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2 flex items-center gap-1.5">
+          <Calendar className="w-3.5 h-3.5" /> {period === "today" ? "本日の注文" : period === "week" ? "今週の注文" : "今月の注文"}
         </p>
-        <p className="text-[12px] text-foreground/70 leading-relaxed mb-3">
-          「田中さんが別の整骨院を訪れても、すべての治療履歴が引き継がれます。」
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          {[
-            { label: "患者LTV", val: "∞", sub: "プラットフォームから離れられない" },
-            { label: "院のメリット", val: "深い施術", sub: "初診でも過去データが活用可能" },
-            { label: "VLUXのモート", val: "圧倒的", sub: "後発は永遠に追いつけない" },
-          ].map(m => (
-            <div key={m.label} className="bg-black/20 rounded-lg p-2.5 text-center">
-              <p className="text-[9px] text-purple-400/60 mb-0.5">{m.label}</p>
-              <p className="font-mono text-[14px] font-bold text-purple-300">{m.val}</p>
-              <p className="text-[8px] text-muted-foreground mt-0.5 leading-tight">{m.sub}</p>
-            </div>
-          ))}
-        </div>
-      </Card>
-
-      <Card className="p-4 border-border" style={{ background: "rgba(255,255,255,.02)" }} data-testid="platform-compliance">
-        <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2.5 flex items-center gap-1.5">
-          <ShieldCheck className="w-3.5 h-3.5" /> 法務・コンプライアンス
-        </p>
-        <div className="grid grid-cols-2 gap-2">
-          {complianceItems.map((item, i) => (
-            <div key={i} className="flex gap-2 items-center">
-              {item.done ? (
-                <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-              ) : (
-                <div className="w-3.5 h-3.5 rounded border border-muted-foreground/30 shrink-0" />
-              )}
-              <span className={`text-[11px] ${item.done ? "text-foreground/70" : "text-muted-foreground/50"}`}>
-                {item.label}
-              </span>
-            </div>
-          ))}
-        </div>
-      </Card>
-    </div>
-  );
-}
-
-function RevenueModelTab() {
-  const [revenueTab, setRevenueTab] = useState("clinic");
-  const [patients, setPatients] = useState(100);
-  const [saasCount, setSaasCount] = useState(20);
-
-  const ecMonthly = Math.round(patients * REV_UNIT_PRICE * REV_CONV_RATE);
-  const vluxEcShare = Math.round(ecMonthly * REV_SHARE_RATE);
-  const saasMonthly = saasCount * SAAS_MONTHLY_FEE;
-  const totalEcAllClinics = vluxEcShare * saasCount;
-  const totalMonthly = saasMonthly + totalEcAllClinics;
-
-  return (
-    <div className="space-y-5" data-testid="revenue-tab">
-      <div className="text-center mb-1">
-        <p className="font-mono text-[10px] tracking-[3px] text-amber-400/60 mb-0.5">REVENUE MODEL</p>
-        <p className="text-lg font-bold text-foreground">収益モデルシミュレーター</p>
-      </div>
-
-      <div className="flex border-b border-border">
-        {([["clinic", "院内収益"], ["ec", "EC収益"], ["saas", "SaaS収益"]] as const).map(([id, label]) => (
-          <button
-            key={id}
-            onClick={() => setRevenueTab(id)}
-            className={`flex-1 py-2 text-[11px] tracking-wider border-b-2 transition-colors ${
-              revenueTab === id ? "text-primary border-primary" : "text-muted-foreground border-transparent"
-            }`}
-            data-testid={`revenue-subtab-${id}`}
-          >
-            {label}
-          </button>
-        ))}
-      </div>
-
-      {revenueTab === "clinic" && (
-        <div className="space-y-3" data-testid="revenue-clinic">
-          {[
-            { icon: Brain, label: "AI自動カルテ", metric: "先生の工数", before: "100%", after: "-60%", impact: "診察件数 +20%", color: "#0073e6" },
-            { icon: Crown, label: "会員ランク制度", metric: "再来院率", before: "基準値", after: "+35%", impact: "患者定着率の大幅向上", color: "#d4a030" },
-            { icon: Heart, label: "HealthKit連携", metric: "施術精度", before: "問診のみ", after: "データ併用", impact: "口コミ拡大・紹介増", color: "#00c896" },
-          ].map(item => (
-            <Card key={item.label} className="p-4 border-border" style={{ background: "rgba(255,255,255,.03)" }}>
-              <div className="flex items-center gap-2 mb-2">
-                <item.icon className="w-4 h-4" style={{ color: item.color }} />
-                <span className="text-[12px] font-bold" style={{ color: item.color }}>{item.label}</span>
-              </div>
-              <div className="flex items-center gap-3">
-                <div className="flex-1 bg-black/20 rounded-lg p-2 text-center">
-                  <p className="text-[9px] text-muted-foreground">{item.metric}</p>
-                  <p className="font-mono text-[14px] text-muted-foreground">{item.before}</p>
+        <Card className="border-border" style={{ background: "rgba(255,255,255,.02)" }}>
+          <div className="divide-y divide-border">
+            {current.items.map((item, i) => (
+              <div key={i} className="flex items-center gap-3 px-4 py-2.5" data-testid={`ec-order-${i}`}>
+                <span className="font-mono text-[11px] text-muted-foreground w-12 shrink-0">{item.time}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] text-foreground truncate">{item.product} x{item.qty}</p>
+                  <p className="text-[10px] text-muted-foreground">{item.patient}</p>
                 </div>
-                <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                <div className="flex-1 bg-black/20 rounded-lg p-2 text-center">
-                  <p className="text-[9px]" style={{ color: item.color }}>改善後</p>
-                  <p className="font-mono text-[14px] font-bold" style={{ color: item.color }}>{item.after}</p>
-                </div>
-              </div>
-              <p className="text-[10px] text-foreground/50 mt-2 text-center">{item.impact}</p>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {revenueTab === "ec" && (
-        <div className="space-y-4" data-testid="revenue-ec">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">患者数</span>
-              <div className="flex items-center gap-2">
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setPatients(p => Math.max(10, p - 10))} data-testid="btn-patients-minus">
-                  <Minus className="w-3 h-3" />
-                </Button>
-                <span className="font-mono text-[14px] text-foreground font-bold w-16 text-center" data-testid="text-patients-count">
-                  {patients}人
+                <Badge
+                  variant="outline"
+                  className={`text-[9px] shrink-0 ${
+                    item.via === "AI推薦" ? "border-blue-500/30 text-blue-400" :
+                    item.via === "先生推薦" ? "border-emerald-500/30 text-emerald-400" :
+                    "border-amber-500/30 text-amber-400"
+                  }`}
+                >
+                  {item.via}
+                </Badge>
+                <span className="font-mono text-[12px] text-foreground font-bold w-20 text-right shrink-0">
+                  ¥{item.price.toLocaleString()}
                 </span>
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setPatients(p => Math.min(1000, p + 10))} data-testid="btn-patients-plus">
-                  <ArrowUpDown className="w-3 h-3" />
-                </Button>
               </div>
-            </div>
-            <div className="h-1.5 bg-border rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-primary to-emerald-400 rounded-full transition-all duration-300" style={{ width: `${(patients / 1000) * 100}%` }} />
-            </div>
+            ))}
           </div>
+        </Card>
+      </div>
 
-          <div className="grid grid-cols-2 gap-2">
-            <Card className="p-3 border-border text-center" style={{ background: "rgba(255,255,255,.03)" }}>
-              <p className="text-[9px] text-muted-foreground">平均購入単価</p>
-              <p className="font-mono text-[14px] text-foreground font-bold">¥{REV_UNIT_PRICE.toLocaleString()}</p>
-            </Card>
-            <Card className="p-3 border-border text-center" style={{ background: "rgba(255,255,255,.03)" }}>
-              <p className="text-[9px] text-muted-foreground">購入転換率</p>
-              <p className="font-mono text-[14px] text-foreground font-bold">{(REV_CONV_RATE * 100)}%</p>
-              <p className="text-[8px] text-primary/60">先生推薦+AI連携の効果</p>
-            </Card>
-          </div>
-
-          <Card className="p-4 border-primary/20" style={{ background: "rgba(0,200,150,.06)" }}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[11px] text-muted-foreground">月間EC売上（1院あたり）</span>
-              <span className="font-mono text-lg text-primary font-bold" data-testid="text-ec-monthly">
-                ¥{ecMonthly.toLocaleString()}
-              </span>
-            </div>
-            <div className="flex justify-between items-center">
-              <span className="text-[11px] text-muted-foreground">VLUX運営収入（{(REV_SHARE_RATE * 100)}%）</span>
-              <span className="font-mono text-[14px] text-amber-400 font-bold" data-testid="text-ec-vlux-share">
-                ¥{vluxEcShare.toLocaleString()}/月
-              </span>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      {revenueTab === "saas" && (
-        <div className="space-y-4" data-testid="revenue-saas">
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[11px] text-muted-foreground">契約院数</span>
-              <div className="flex items-center gap-2">
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSaasCount(c => Math.max(1, c - 5))} data-testid="btn-saas-minus">
-                  <Minus className="w-3 h-3" />
-                </Button>
-                <span className="font-mono text-[14px] text-foreground font-bold w-16 text-center" data-testid="text-saas-count">
-                  {saasCount}院
-                </span>
-                <Button size="icon" variant="outline" className="h-7 w-7" onClick={() => setSaasCount(c => Math.min(200, c + 5))} data-testid="btn-saas-plus">
-                  <ArrowUpDown className="w-3 h-3" />
-                </Button>
-              </div>
-            </div>
-            <div className="h-1.5 bg-border rounded-full overflow-hidden">
-              <div className="h-full bg-gradient-to-r from-purple-500 to-blue-500 rounded-full transition-all duration-300" style={{ width: `${(saasCount / 200) * 100}%` }} />
-            </div>
-          </div>
-
-          <Card className="p-3 border-border text-center" style={{ background: "rgba(255,255,255,.03)" }}>
-            <p className="text-[9px] text-muted-foreground">月額プラン</p>
-            <p className="font-mono text-[14px] text-foreground font-bold">¥{SAAS_MONTHLY_FEE.toLocaleString()} / 院</p>
-          </Card>
-
-          <Card className="p-4 border-purple-500/20" style={{ background: "rgba(136,102,255,.06)" }}>
-            <div className="space-y-2">
-              <div className="flex justify-between items-center">
-                <span className="text-[11px] text-muted-foreground">SaaS月額収入</span>
-                <span className="font-mono text-[14px] text-purple-400 font-bold" data-testid="text-saas-monthly">
-                  ¥{saasMonthly.toLocaleString()}
-                </span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="text-[11px] text-muted-foreground">EC レベニューシェア（{(REV_SHARE_RATE * 100)}%）</span>
-                <span className="font-mono text-[14px] text-amber-400 font-bold">
-                  ¥{totalEcAllClinics.toLocaleString()}
-                </span>
-              </div>
-              <div className="border-t border-border pt-2 flex justify-between items-center">
-                <span className="text-[12px] text-foreground font-semibold">合計月次収益</span>
-                <span className="font-mono text-xl text-primary font-bold" data-testid="text-total-monthly">
-                  ¥{totalMonthly.toLocaleString()}
-                </span>
-              </div>
-            </div>
-          </Card>
-        </div>
-      )}
-
-      <p className="text-[9px] text-muted-foreground/40 text-center pt-2">
-        ※ このシミュレーターはデモ用の概算値です。実際の収益は市場環境により変動します。
+      <p className="text-[9px] text-muted-foreground/40 text-center pt-1">
+        ※ デモ用のサンプルデータです
       </p>
     </div>
   );

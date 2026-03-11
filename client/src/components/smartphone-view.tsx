@@ -7,14 +7,13 @@ import {
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
-  Crown, Award, Leaf, TrendingUp, Target, Map, MapPin,
-  ChevronDown, ChevronUp,
+  Crown, Award, Leaf, TrendingUp, Target, MapPin,
 } from "lucide-react";
 import type { KarteResult, Product, LifeAdvice } from "@/lib/constants";
 import {
   HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS, TREATMENT_HISTORY,
   RANKS, getRank, getNextRank,
-  PHASES, CLINIC_MASTER,
+  CLINIC_MASTER,
   statusColor, statusBg,
 } from "@/lib/constants";
 import { useState } from "react";
@@ -118,7 +117,7 @@ export function SmartphoneView({
           )}
 
           <div className="flex border-b border-border">
-            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "VLUXストア"], ["rank", "VLUXスコア"], ["roadmap", "ロードマップ"]] as const).map(([tab, label]) => (
+            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "VLUXストア"], ["rank", "VLUXスコア"]] as const).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => onPhoneTabChange(tab)}
@@ -323,8 +322,6 @@ export function SmartphoneView({
             )}
 
             {phoneTab === "rank" && <RankTab />}
-
-            {phoneTab === "roadmap" && <RoadmapTab />}
           </div>
         </ScrollArea>
       </div>
@@ -670,98 +667,6 @@ function CouponWallet({ expanded }: { expanded: boolean }) {
   );
 }
 
-function RoadmapTab() {
-  const [expandedPhase, setExpandedPhase] = useState<number | null>(null);
-
-  const statusConfig: Record<string, { icon: typeof Check; badgeText: string; badgeClass: string }> = {
-    done: { icon: Check, badgeText: "完了済み", badgeClass: "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" },
-    active: { icon: Loader2, badgeText: "開発中", badgeClass: "bg-blue-500/20 text-blue-400 border-blue-500/30" },
-    pending: { icon: Clock, badgeText: "未着手", badgeClass: "bg-muted text-muted-foreground border-border" },
-    final: { icon: Sparkles, badgeText: "最終フェーズ", badgeClass: "bg-purple-500/20 text-purple-400 border-purple-500/30" },
-  };
-
-  return (
-    <div className="space-y-3" data-testid="roadmap-tab">
-      <div className="text-center mb-2">
-        <p className="font-mono text-[10px] tracking-[3px] text-primary/60 mb-0.5">VLUX DEVELOPMENT</p>
-        <p className="text-[14px] font-bold text-foreground">開発ロードマップ</p>
-      </div>
-
-      {PHASES.map((phase, i) => {
-        const config = statusConfig[phase.status];
-        const StatusIcon = config.icon;
-        const isExpanded = expandedPhase === phase.id;
-        const isFinal = phase.status === "final";
-
-        return (
-          <div key={phase.id} className="flex gap-2.5" data-testid={`roadmap-phase-${phase.id}`}>
-            <div className="flex flex-col items-center" style={{ minWidth: 20 }}>
-              <div
-                className="w-3 h-3 rounded-full mt-1.5 shrink-0"
-                style={{
-                  background: phase.color,
-                  boxShadow: phase.status === "active" ? `0 0 8px ${phase.color}` : "none",
-                }}
-              />
-              {i < PHASES.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-            </div>
-            <button
-              className="flex-1 text-left rounded-xl p-3 mb-0.5 transition-all"
-              style={{
-                background: isFinal
-                  ? "linear-gradient(135deg,rgba(136,102,255,.12),rgba(60,40,140,.08))"
-                  : phase.status === "done"
-                  ? "rgba(0,200,150,.06)"
-                  : phase.status === "active"
-                  ? "rgba(0,115,230,.08)"
-                  : "rgba(255,255,255,.02)",
-                border: isFinal
-                  ? "1px solid rgba(136,102,255,.35)"
-                  : `1px solid ${phase.status === "done" ? "rgba(0,200,150,.2)" : phase.status === "active" ? "rgba(0,115,230,.25)" : "var(--border)"}`,
-                boxShadow: isFinal ? `0 0 20px ${phase.glow}, 0 0 40px rgba(136,102,255,.1)` : phase.status === "active" ? `0 0 12px ${phase.glow}` : "none",
-              }}
-              onClick={() => setExpandedPhase(isExpanded ? null : phase.id)}
-              data-testid={`roadmap-phase-btn-${phase.id}`}
-            >
-              <div className="flex items-center gap-2 mb-1.5">
-                <span className="font-mono text-[12px] font-bold" style={{ color: phase.color }}>
-                  {phase.title}
-                </span>
-                <Badge
-                  variant="outline"
-                  className={`text-[8px] h-4 ${config.badgeClass}`}
-                >
-                  <StatusIcon className={`w-2.5 h-2.5 mr-0.5 ${phase.status === "active" ? "animate-spin" : ""}`} />
-                  {config.badgeText}
-                </Badge>
-                {isExpanded ? (
-                  <ChevronUp className="w-3 h-3 text-muted-foreground ml-auto" />
-                ) : (
-                  <ChevronDown className="w-3 h-3 text-muted-foreground ml-auto" />
-                )}
-              </div>
-              <p className="text-[11px] font-semibold" style={{ color: phase.color }}>
-                {phase.sub}
-              </p>
-              <p className="text-[9px] text-muted-foreground mt-0.5">{phase.period}</p>
-
-              {isExpanded && (
-                <div className="mt-2.5 pt-2.5 border-t" style={{ borderColor: `${phase.color}20` }} data-testid={`roadmap-phase-details-${phase.id}`}>
-                  {phase.features.map((f, fi) => (
-                    <div key={fi} className="flex gap-1.5 mb-1">
-                      <Check className="w-3 h-3 mt-0.5 shrink-0" style={{ color: phase.color }} />
-                      <span className="text-[11px] text-foreground/60 leading-relaxed">{f}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </button>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function ClinicBanner({ activeClinic, onSwitch }: { activeClinic: string; onSwitch: (id: string) => void }) {
   const clinics = Object.values(CLINIC_MASTER);
