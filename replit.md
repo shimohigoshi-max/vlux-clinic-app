@@ -9,19 +9,32 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 - **Frontend**: React + TypeScript with Tailwind CSS and shadcn/ui components
 - **Backend**: Express.js with Anthropic AI integration for conversation analysis
 - **AI**: Uses Replit AI Integrations (Anthropic) - no API key required, model: claude-sonnet-4-6
-- **Storage**: In-memory only (demo application, no database)
+- **Storage**: In-memory for UI state + Supabase PostgreSQL for persistent data (clinics, patients, visits, health_data)
 
 ## Key Files
 - `client/src/pages/home.tsx` - Main page with all state management (voice recording, AI mutations, health sync, cart), VLUXLogo component
 - `client/src/components/ipad-view.tsx` - Clinician iPad view with 5 tabs: 音声入力 (Voice), カルテ履歴 (Karte History - expandable cards with formal karte + AI summary, newest first), 履歴・相関分析 (History/Correlation), 健康データ (Health), 通販売上 (EC Sales Dashboard)
 - `client/src/components/smartphone-view.tsx` - Patient smartphone view with 4 tabs: タイムライン, 健康データ, VLUXストア (rank-based pricing), VLUXスコア (membership card). Includes ClinicBanner for cross-clinic switching.
 - `client/src/lib/constants.ts` - Types, sample data, 8 treatment history records, 5-tier rank system, status color utilities, PHASES (5 phases), CLINIC_MASTER (2 clinics), revenue constants
-- `server/routes.ts` - Three API endpoints: POST /api/summarize, POST /api/analyze, POST /api/correlate
+- `server/routes.ts` - AI endpoints + Supabase CRUD endpoints for 4 tables
+- `server/supabase.ts` - Supabase client factory (`getSupabaseClient()`) + TypeScript types for all 4 tables
 
 ## API Endpoints
+### AI
 - `POST /api/summarize` - Quick AI summary of conversation (auto-triggered after voice input)
 - `POST /api/analyze` - Full karte generation with lifestyle/diet/supplement/self-care fields + product recommendations
 - `POST /api/correlate` - AI correlation analysis of 8-visit treatment history vs health data (HRV, steps, sleep)
+
+### Supabase CRUD (requires tables to be created in Supabase dashboard)
+- `GET/POST/DELETE /api/clinics` — クリニック一覧・登録・削除
+- `GET/POST/PATCH/DELETE /api/patients` — 患者一覧・登録・更新・削除（?clinic_id=フィルタ可）
+- `GET/POST/DELETE /api/visits` — 来院記録（?patient_id=, ?clinic_id=フィルタ可）
+- `GET/POST/DELETE /api/health-data` — 健康データ（?patient_id=フィルタ可）
+
+### Supabase Config
+- URL: `SUPABASE_URL` env var
+- Key: `SUPABASE_PUBLISHABLE_KEY` env var
+- Tables must be created manually via SQL in Supabase dashboard (SQL Editor)
 
 ## Key Constants
 - VISIT_COUNT = 8, current rank = Bronze
