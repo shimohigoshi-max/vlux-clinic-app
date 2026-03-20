@@ -184,7 +184,9 @@ export async function registerRoutes(
       const message = await anthropic.messages.create({
         model: "claude-sonnet-4-6",
         max_tokens: 8192,
-        system: `整骨院会話の要点をJSONのみで出力（\`\`\`不要）: {"chief_complaint":"主訴","key_symptoms":["症状"],"lifestyle_issues":["生活習慣問題"],"treatment_done":"処置","home_care":["ホームケア"],"follow_up":"次回注意"}`,
+        system: `整骨院会話の要点をJSONのみで出力（\`\`\`不要）:
+{"chief_complaint":"主訴（部位＋動作＋症状で簡潔に）","key_symptoms":["臨床的な症状・部位・動作・身体的所見のみ。例:「腰部屈曲時の鈍痛」「右肩外旋制限」「L4-5圧痛」。生活習慣・職業・時期・感情・環境要因は絶対に含めない"],"lifestyle_issues":["生活習慣や職業・環境の問題点"],"treatment_done":"処置内容","home_care":["ホームケア指導"],"follow_up":"次回来院時の注意点"}
+key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に限定。デスクワーク・季節・ストレス・感情・職業名などは lifestyle_issues に入れること。`,
         messages: [{ role: "user", content: parsed.data.conversation }],
       });
 
