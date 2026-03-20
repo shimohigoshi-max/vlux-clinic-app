@@ -47,3 +47,7 @@ integrations = ["javascript_anthropic_ai_integrations:2.0.0"]
 [userenv.shared]
 SUPABASE_URL = "https://hcgsdtbigidxanjtusrf.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_TQ2mZXx3rgxwwIQqw7X5Fw_N7Y_6kuI"
+
+[postMerge]
+path = "scripts/post-merge.sh"
+timeoutMs = 20000
