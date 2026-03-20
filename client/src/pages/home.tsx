@@ -86,6 +86,7 @@ export default function Home() {
   const [correlationResult, setCorrelationResult] = useState<CorrelationResult | null>(null);
   const [isCorrelating, setIsCorrelating] = useState(false);
   const [karteHistory, setKarteHistory] = useState<KarteHistoryEntry[]>([]);
+  const [karteSaved, setKarteSaved] = useState(false);
 
   const recRef = useRef<SpeechRecognition | null>(null);
   const tRef = useRef("");
@@ -155,6 +156,7 @@ export default function Home() {
     if (!transcript.trim()) return;
     setIsAnalyzing(true);
     setKarte(null);
+    setKarteSaved(false);
     const hd = healthSynced
       ? `歩数${HEALTH_DATA.steps}歩, 睡眠${HEALTH_DATA.sleep}h, HRV${HEALTH_DATA.hrv}`
       : "健康データ未連携";
@@ -178,6 +180,9 @@ export default function Home() {
           karte: data,
         };
         setKarteHistory(prev => [entry, ...prev]);
+        if (data.visit_id) {
+          setKarteSaved(true);
+        }
       }
       setIpadTab("karte");
     } catch {
@@ -292,6 +297,7 @@ export default function Home() {
           karte={karte}
           isAnalyzing={isAnalyzing}
           onDoKarte={doKarte}
+          karteSaved={karteSaved}
           correlationResult={correlationResult}
           isCorrelating={isCorrelating}
           onDoCorrelation={doCorrelation}

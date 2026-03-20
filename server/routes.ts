@@ -117,6 +117,54 @@ function checkRateLimit(ip: string, maxPerMinute: number = 10): boolean {
   return true;
 }
 
+async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; patient_id: string }> {
+  const supabase = getSupabaseClient();
+
+  const DEMO_CLINIC_NAME = "VLUXデモクリニック";
+  const DEMO_PATIENT_NAME = "田中大輔";
+
+  let clinic_id: string;
+  const { data: existingClinics } = await supabase
+    .from("clinics")
+    .select("id")
+    .eq("name", DEMO_CLINIC_NAME)
+    .limit(1);
+
+  if (existingClinics && existingClinics.length > 0) {
+    clinic_id = existingClinics[0].id;
+  } else {
+    const { data: newClinic, error } = await supabase
+      .from("clinics")
+      .insert({ name: DEMO_CLINIC_NAME, address: "", phone: "" })
+      .select("id")
+      .single();
+    if (error || !newClinic) throw new Error("クリニック作成失敗: " + error?.message);
+    clinic_id = newClinic.id;
+  }
+
+  let patient_id: string;
+  const { data: existingPatients } = await supabase
+    .from("patients")
+    .select("id")
+    .eq("clinic_id", clinic_id)
+    .eq("name", DEMO_PATIENT_NAME)
+    .limit(1);
+
+  if (existingPatients && existingPatients.length > 0) {
+    patient_id = existingPatients[0].id;
+  } else {
+    const { data: newPatient, error } = await supabase
+      .from("patients")
+      .insert({ clinic_id, name: DEMO_PATIENT_NAME, phone: "", grade: "Bronze" })
+      .select("id")
+      .single();
+    if (error || !newPatient) throw new Error("患者作成失敗: " + error?.message);
+    patient_id = newPatient.id;
+  }
+
+  return { clinic_id, patient_id };
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -215,7 +263,30 @@ priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improve
         return res.status(500).json({ error: "AI応答のフォーマットが不正です。再度お試しください。" });
       }
 
-      res.json(validated.data);
+      let visit_id: string | null = null;
+      try {
+        const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
+        const supabase = getSupabaseClient();
+        const { data: visitData, error: visitError } = await supabase
+          .from("visits")
+          .insert({
+            patient_id,
+            clinic_id,
+            note: conversation,
+            advice: JSON.stringify(validated.data),
+          })
+          .select("id")
+          .single();
+        if (!visitError && visitData) {
+          visit_id = visitData.id;
+        } else {
+          console.error("Visit save error:", visitError?.message);
+        }
+      } catch (saveErr) {
+        console.error("Visit save exception:", saveErr);
+      }
+
+      res.json({ ...validated.data, visit_id });
     } catch (error) {
       console.error("Analysis error:", error);
       res.status(500).json({ error: "解析エラー。再度お試しください。" });

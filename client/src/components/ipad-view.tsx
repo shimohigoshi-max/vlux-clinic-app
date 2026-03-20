@@ -37,6 +37,7 @@ interface IPadViewProps {
   karte: KarteResult | null;
   isAnalyzing: boolean;
   onDoKarte: () => void;
+  karteSaved?: boolean;
   correlationResult: CorrelationResult | null;
   isCorrelating: boolean;
   onDoCorrelation: () => void;
@@ -58,7 +59,7 @@ export function IPadView(props: IPadViewProps) {
   const {
     ipadTab, onIpadTabChange, transcript, onTranscriptChange,
     isRecording, onStartRec, onStopRec, onLoadSample,
-    summary, isSummarizing, karte, isAnalyzing, onDoKarte,
+    summary, isSummarizing, karte, isAnalyzing, onDoKarte, karteSaved,
     correlationResult, isCorrelating, onDoCorrelation,
     healthSynced, healthSyncing, onSyncHealth, onSendToPatient,
     karteHistory,
@@ -176,6 +177,12 @@ export function IPadView(props: IPadViewProps) {
                 <><Zap className="w-4 h-4" /> 正式カルテ + 商品推薦を生成</>
               )}
             </Button>
+            {karteSaved && (
+              <div className="flex items-center gap-1.5 mt-2 justify-center" data-testid="text-karte-saved">
+                <Check className="w-3.5 h-3.5 text-emerald-400" />
+                <span className="text-[11px] text-emerald-400 font-mono">カルテ保存済み</span>
+              </div>
+            )}
           </div>
 
           <div>
@@ -224,6 +231,7 @@ export function IPadView(props: IPadViewProps) {
         <KarteHistoryTab
           karteHistory={karteHistory}
           onSendToPatient={onSendToPatient}
+          karteSaved={karteSaved}
         />
       )}
 
@@ -491,7 +499,7 @@ export function IPadView(props: IPadViewProps) {
 }
 
 
-function KarteHistoryTab({ karteHistory, onSendToPatient }: { karteHistory: KarteHistoryEntry[]; onSendToPatient: () => void }) {
+function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteHistory: KarteHistoryEntry[]; onSendToPatient: () => void; karteSaved?: boolean }) {
   const latestId = karteHistory.length > 0 ? karteHistory[0].id : null;
   const [expandedId, setExpandedId] = useState<string | null>(latestId);
   const [prevLatestId, setPrevLatestId] = useState<string | null>(latestId);
@@ -512,9 +520,17 @@ function KarteHistoryTab({ karteHistory, onSendToPatient }: { karteHistory: Kart
   return (
     <div className="space-y-3" data-testid="karte-history-tab">
       <div className="flex items-center justify-between mb-1">
-        <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
-          カルテ履歴（{karteHistory.length}件）
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
+            カルテ履歴（{karteHistory.length}件）
+          </p>
+          {karteSaved && (
+            <div className="flex items-center gap-1" data-testid="text-karte-saved">
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-[11px] text-emerald-400 font-mono">カルテ保存済み</span>
+            </div>
+          )}
+        </div>
         <Button
           variant="outline"
           size="sm"
