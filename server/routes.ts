@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
-import { getSupabaseClient } from "./supabase";
+import { getSupabaseAdmin } from "./supabase";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -118,7 +118,7 @@ function checkRateLimit(ip: string, maxPerMinute: number = 10): boolean {
 }
 
 async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; patient_id: string }> {
-  const supabase = getSupabaseClient();
+  const supabase = getSupabaseAdmin();
 
   const DEMO_CLINIC_NAME = "VLUXデモクリニック";
   const DEMO_PATIENT_NAME = "田中大輔";
@@ -268,7 +268,7 @@ priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improve
       let visit_id: string | null = null;
       try {
         const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
-        const supabase = getSupabaseClient();
+        const supabase = getSupabaseAdmin();
         const { data: visitData, error: visitError } = await supabase
           .from("visits")
           .insert({
@@ -353,7 +353,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.get("/api/clinics", async (_req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("clinics").select("*").order("created_at", { ascending: false });
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -366,7 +366,7 @@ scoreは0〜100の整数値で出力してください。`,
     const parsed = clinicInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("clinics").insert(parsed.data).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -377,7 +377,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.delete("/api/clinics/:id", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { error } = await supabase.from("clinics").delete().eq("id", req.params.id);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
@@ -396,7 +396,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.get("/api/patients", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       let query = supabase.from("patients").select("*").order("created_at", { ascending: false });
       if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
       const { data, error } = await query;
@@ -411,7 +411,7 @@ scoreは0〜100の整数値で出力してください。`,
     const parsed = patientInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("patients").insert(parsed.data).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -422,7 +422,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.patch("/api/patients/:id", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("patients").update(req.body).eq("id", req.params.id).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -433,7 +433,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.delete("/api/patients/:id", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { error } = await supabase.from("patients").delete().eq("id", req.params.id);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
@@ -452,7 +452,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.get("/api/visits", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       let query = supabase.from("visits").select("*").order("created_at", { ascending: false });
       if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
       if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
@@ -468,7 +468,7 @@ scoreは0〜100の整数値で出力してください。`,
     const parsed = visitInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("visits").insert(parsed.data).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -479,7 +479,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.delete("/api/visits/:id", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { error } = await supabase.from("visits").delete().eq("id", req.params.id);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
@@ -499,7 +499,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.get("/api/health-data", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       let query = supabase.from("health_data").select("*").order("recorded_at", { ascending: false });
       if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
       const { data, error } = await query;
@@ -514,7 +514,7 @@ scoreは0〜100の整数値で出力してください。`,
     const parsed = healthDataInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("health_data").insert(parsed.data).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -525,7 +525,7 @@ scoreは0〜100の整数値で出力してください。`,
 
   app.delete("/api/health-data/:id", async (req, res) => {
     try {
-      const supabase = getSupabaseClient();
+      const supabase = getSupabaseAdmin();
       const { error } = await supabase.from("health_data").delete().eq("id", req.params.id);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
