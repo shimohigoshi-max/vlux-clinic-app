@@ -267,13 +267,12 @@ priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improve
 
       let visit_id: string | null = null;
       try {
-        const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
+        const { patient_id } = await getOrCreateDemoClinicAndPatient();
         const supabase = getSupabaseAdmin();
         const { data: visitData, error: visitError } = await supabase
           .from("visits")
           .insert({
             patient_id,
-            clinic_id,
             note: conversation,
             advice: JSON.stringify(validated.data),
           })
@@ -445,7 +444,7 @@ scoreは0〜100の整数値で出力してください。`,
   // ─── Visits ────────────────────────────────────────────────────────
   const visitInsertSchema = z.object({
     patient_id: z.string().uuid(),
-    clinic_id: z.string().uuid(),
+    clinic_id: z.string().uuid().optional(),
     note: z.string().default(""),
     advice: z.string().default(""),
   });
@@ -453,9 +452,8 @@ scoreは0〜100の整数値で出力してください。`,
   app.get("/api/visits", async (req, res) => {
     try {
       const supabase = getSupabaseAdmin();
-      let query = supabase.from("visits").select("*").order("created_at", { ascending: false });
+      let query = supabase.from("visits").select("*");
       if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
-      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
       const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -469,7 +467,9 @@ scoreは0〜100の整数値で出力してください。`,
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
       const supabase = getSupabaseAdmin();
-      const { data, error } = await supabase.from("visits").insert(parsed.data).select().single();
+      const { clinic_id, ...rest } = parsed.data;
+      const insertData = clinic_id ? { ...rest, clinic_id } : rest;
+      const { data, error } = await supabase.from("visits").insert(insertData).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
