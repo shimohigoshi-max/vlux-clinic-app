@@ -16,6 +16,7 @@ import {
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
   MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket, CalendarDays, ChevronLeft, ChevronRight as ChevronRightIcon,
+  Settings, Building2, Bell, Palette,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type {
@@ -70,6 +71,18 @@ interface AdminPatient {
   member_grade: string;
   gender: string | null;
   birth_date: string | null;
+  phone: string | null;
+  address: string | null;
+  created_at: string;
+}
+interface Staff {
+  id: string;
+  clinic_id: string;
+  name: string;
+  role: "owner" | "staff" | "reception";
+  email: string | null;
+  calendar_color: string;
+  is_active: boolean;
   created_at: string;
 }
 interface AdminVisit {
@@ -163,9 +176,29 @@ export function IPadView(props: IPadViewProps) {
 
   // ── New patient modal ────────────────────────────────────────────
   const { toast } = useToast();
+
+  // ── Settings modal state ──────────────────────────────────────────
+  const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState<"clinic" | "staff" | "menu" | "notify">("clinic");
+  const [clinicForm, setClinicForm] = useState({
+    name: "", postal: "", address: "", phone: "", email: "", hours: "", website: "",
+    closedDays: [] as string[],
+  });
+  const [showAddStaff, setShowAddStaff] = useState(false);
+  const [addStaffForm, setAddStaffForm] = useState({
+    name: "", role: "staff" as "owner" | "staff" | "reception", email: "", calendar_color: "#00c896",
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isSavingStaff, setIsSavingStaff] = useState(false);
+  const [menuItems, setMenuItems] = useState([
+    { name: "整体施術", duration: 30, price: 3300 },
+    { name: "鍼施術", duration: 45, price: 5500 },
+  ]);
+  const [notifySettings, setNotifySettings] = useState({ smsEnabled: true, reminderDays: 2 });
+
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [newPatientForm, setNewPatientForm] = useState({
-    name_kana: "", birth_date: "", gender: "", phone: "",
+    name_kana: "", birth_date: "", gender: "", phone: "", address: "",
   });
   const [isSavingPatient, setIsSavingPatient] = useState(false);
   const [newPatientError, setNewPatientError] = useState<string | null>(null);
@@ -178,11 +211,13 @@ export function IPadView(props: IPadViewProps) {
     setRegisteredPatient(null);
     setSmsStatus(null);
     setNewPatientError(null);
-    setNewPatientForm({ name_kana: "", birth_date: "", gender: "", phone: "" });
+    setNewPatientForm({ name_kana: "", birth_date: "", gender: "", phone: "", address: "" });
   };
 
   const saveNewPatient = async () => {
     if (!newPatientForm.name_kana.trim() || !clinicId) return;
+    if (!newPatientForm.birth_date) { setNewPatientError("生年月日は必須です。"); return; }
+    if (!newPatientForm.phone.trim()) { setNewPatientError("電話番号は必須です。"); return; }
     setIsSavingPatient(true);
     setNewPatientError(null);
     try {
@@ -190,10 +225,11 @@ export function IPadView(props: IPadViewProps) {
         name_kana: newPatientForm.name_kana.trim(),
         clinic_id: clinicId,
         member_grade: "bronze",
+        birth_date: newPatientForm.birth_date,
+        phone: newPatientForm.phone.trim(),
       };
-      if (newPatientForm.birth_date) body.birth_date = newPatientForm.birth_date;
       if (newPatientForm.gender) body.gender = newPatientForm.gender;
-      if (newPatientForm.phone) body.phone = newPatientForm.phone;
+      if (newPatientForm.address.trim()) body.address = newPatientForm.address.trim();
       const saved = await apiRequest("POST", "/api/patients", body);
       const patient = await saved.json();
       queryClient.invalidateQueries({ queryKey: ["admin-patients", clinicId] });
@@ -229,6 +265,23 @@ export function IPadView(props: IPadViewProps) {
   });
 
   const clinicId = clinicInfo?.id ?? null;
+
+  const { data: staffs = [], refetch: refetchStaffs } = useQuery<Staff[]>({
+    queryKey: ["staffs", clinicId],
+    queryFn: async () => {
+      if (!clinicId) return [];
+      const res = await fetch(`/api/staffs?clinic_id=${clinicId}`, { credentials: "include" });
+      if (!res.ok) return [];
+      return res.json();
+    },
+    enabled: !!clinicId,
+    staleTime: 30000,
+  });
+
+  // Sync clinic name to settings form when loaded
+  useEffect(() => {
+    if (clinicInfo?.name) setClinicForm(f => ({ ...f, name: f.name || clinicInfo.name }));
+  }, [clinicInfo?.name]);
 
   const { data: patients = [], isLoading: patientsLoading, error: patientsError } = useQuery<AdminPatient[]>({
     queryKey: ["admin-patients", clinicId],
@@ -283,6 +336,51 @@ export function IPadView(props: IPadViewProps) {
     return results;
   }, [adminVisits, visitPatientFilter, visitStaffFilter, patientMap]);
 
+  // ── Settings save ─────────────────────────────────────────────────
+  const saveClinicSettings = async () => {
+    if (!clinicForm.name.trim()) return;
+    setIsSavingSettings(true);
+    try {
+      await apiRequest("PATCH", "/api/admin/clinic", { name: clinicForm.name.trim() });
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/clinic"] });
+      toast({ title: "保存完了", description: "医院情報を更新しました" });
+    } catch {
+      toast({ title: "エラー", description: "保存に失敗しました", variant: "destructive" });
+    }
+    setIsSavingSettings(false);
+  };
+
+  const saveNewStaff = async () => {
+    if (!addStaffForm.name.trim() || !clinicId) return;
+    setIsSavingStaff(true);
+    try {
+      await apiRequest("POST", "/api/staffs", {
+        clinic_id: clinicId,
+        name: addStaffForm.name.trim(),
+        role: addStaffForm.role,
+        email: addStaffForm.email,
+        calendar_color: addStaffForm.calendar_color,
+      });
+      await refetchStaffs();
+      setAddStaffForm({ name: "", role: "staff", email: "", calendar_color: "#00c896" });
+      setShowAddStaff(false);
+      toast({ title: "追加完了", description: `${addStaffForm.name} を追加しました` });
+    } catch {
+      toast({ title: "エラー", description: "スタッフ追加に失敗しました", variant: "destructive" });
+    }
+    setIsSavingStaff(false);
+  };
+
+  const deleteStaff = async (id: string, name: string) => {
+    try {
+      await apiRequest("DELETE", `/api/staffs/${id}`, undefined);
+      await refetchStaffs();
+      toast({ title: "削除完了", description: `${name} を削除しました` });
+    } catch {
+      toast({ title: "エラー", description: "削除に失敗しました", variant: "destructive" });
+    }
+  };
+
   // ── Save edited karte ────────────────────────────────────────────
   const saveEditedKarte = async () => {
     if (!karteVisitId || !editedKarte) return;
@@ -306,18 +404,23 @@ export function IPadView(props: IPadViewProps) {
     setIsSavingEdit(false);
   };
 
-  // ── Tabs ─────────────────────────────────────────────────────────
-  const tabs = [
-    { id: "patients", label: "患者選択", icon: Users },
-    { id: "schedule", label: "予約管理", icon: CalendarDays },
-    { id: "voice", label: "音声入力", icon: Mic },
-    { id: "karte", label: "カルテ", icon: FileText },
-    { id: "visits", label: "治療履歴", icon: History },
-    { id: "history", label: "相関分析", icon: BarChart3 },
-    ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart }] : []),
-    { id: "ec-sales", label: "通販売上", icon: ShoppingCart },
-    { id: "coupon-admin", label: "クーポン確認", icon: Ticket },
+  // ── Current staff role ────────────────────────────────────────────
+  const currentStaff = staffs.find(s => s.name === staffName) ?? null;
+  const currentRole: "owner" | "staff" | "reception" = currentStaff?.role ?? "owner";
+
+  // ── Tabs (role-filtered) ──────────────────────────────────────────
+  const allTabs = [
+    { id: "patients",    label: "患者選択",   icon: Users,      roles: ["owner", "staff", "reception"] },
+    { id: "schedule",    label: "予約管理",   icon: CalendarDays, roles: ["owner", "staff", "reception"] },
+    { id: "voice",       label: "音声入力",   icon: Mic,        roles: ["owner", "staff"] },
+    { id: "karte",       label: "カルテ",     icon: FileText,   roles: ["owner", "staff"] },
+    { id: "visits",      label: "治療履歴",   icon: History,    roles: ["owner", "staff", "reception"] },
+    { id: "history",     label: "相関分析",   icon: BarChart3,  roles: ["owner", "staff"] },
+    ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart, roles: ["owner", "staff"] }] : []),
+    { id: "ec-sales",    label: "通販売上",   icon: ShoppingCart, roles: ["owner"] },
+    { id: "coupon-admin",label: "クーポン確認", icon: Ticket,   roles: ["owner", "reception"] },
   ];
+  const tabs = allTabs.filter(t => t.roles.includes(currentRole));
 
   const gradeColor = (grade: string) => {
     if (grade === "platinum") return "text-purple-400 border-purple-400/30";
@@ -348,7 +451,7 @@ export function IPadView(props: IPadViewProps) {
         )}
         {healthSynced && <Badge data-testid="badge-healthkit">HealthKit 連携済</Badge>}
         <div className="ml-auto flex items-center gap-2">
-          {/* Staff selector */}
+          {/* Staff selector — uses real staffs from API, falls back to demo list */}
           <div className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-md px-2 py-1">
             <UserCheck className="w-3.5 h-3.5 text-primary flex-shrink-0" />
             <select
@@ -357,16 +460,25 @@ export function IPadView(props: IPadViewProps) {
               className="bg-transparent text-[12px] text-foreground outline-none cursor-pointer pr-1"
               data-testid="select-staff-name"
             >
-              {DEMO_STAFF.map(s => (
+              {(staffs.length > 0 ? staffs.map(s => s.name) : DEMO_STAFF).map(s => (
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
+            {currentRole !== "owner" && (
+              <span className={`text-[9px] px-1 rounded ${currentRole === "reception" ? "text-amber-400 bg-amber-500/15" : "text-sky-400 bg-sky-500/15"}`}>
+                {currentRole === "reception" ? "受付" : "スタッフ"}
+              </span>
+            )}
           </div>
           {!healthSynced && (
             <Button variant="outline" size="sm" onClick={onSyncHealth} disabled={healthSyncing} data-testid="button-sync-health">
               {healthSyncing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</> : <><Activity className="w-3.5 h-3.5" /> HealthKit 同期</>}
             </Button>
           )}
+          {/* Settings gear */}
+          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} data-testid="button-open-settings">
+            <Settings className="w-3.5 h-3.5" />
+          </Button>
         </div>
       </div>
 
@@ -441,11 +553,27 @@ export function IPadView(props: IPadViewProps) {
             </div>
           )}
 
+          {/* 同姓同名警告 */}
+          {patientSearch.trim() && filteredPatients.length > 1 && (
+            (() => {
+              const nameSet = new Set(filteredPatients.map(p => p.name_kana));
+              const hasDupe = nameSet.size < filteredPatients.length;
+              return hasDupe ? (
+                <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 rounded-md px-3 py-2 mb-3" data-testid="warning-duplicate-patients">
+                  <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <p className="text-[12px] text-amber-300">同姓同名の患者が複数います。生年月日・電話番号で本人確認してから選択してください。</p>
+                </div>
+              ) : null;
+            })()
+          )}
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
             {filteredPatients.map(p => {
               const isSelected = selectedPatientId === p.id;
               const d = p.birth_date ? new Date(p.birth_date) : null;
-              const age = d ? (new Date().getFullYear() - d.getFullYear()) : null;
+              const bdLabel = d ? d.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" }) : null;
+              const phoneLast4 = p.phone?.replace(/\D/g, "").slice(-4) ?? null;
+              const dupeCount = filteredPatients.filter(x => x.name_kana === p.name_kana).length;
               return (
                 <button
                   key={p.id}
@@ -460,16 +588,20 @@ export function IPadView(props: IPadViewProps) {
                   <div className="flex items-center gap-2 mb-1.5">
                     {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
                     <span className="font-bold text-[14px] text-foreground">{p.name_kana}</span>
+                    {dupeCount > 1 && (
+                      <span className="text-[9px] bg-amber-500/20 text-amber-400 border border-amber-500/30 rounded px-1 py-0 flex items-center gap-0.5" data-testid={`badge-dupe-${p.id}`}>
+                        <AlertTriangle className="w-2.5 h-2.5" />同名
+                      </span>
+                    )}
                     <Badge variant="outline" className={`ml-auto text-[9px] h-5 ${gradeColor(p.member_grade)}`}>
                       {p.member_grade.toUpperCase()}
                     </Badge>
                   </div>
-                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-                    {age && <span>{age}歳</span>}
-                    {p.gender && <span>{p.gender}</span>}
-                    <span className="ml-auto font-mono text-[10px]">
-                      登録: {new Date(p.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}
-                    </span>
+                  <div className="flex items-center gap-2 text-[11px] text-muted-foreground font-mono">
+                    {bdLabel && <span>{bdLabel}</span>}
+                    {bdLabel && phoneLast4 && <span className="text-muted-foreground/40">·</span>}
+                    {phoneLast4 && <span>末尾{phoneLast4}</span>}
+                    {p.gender && <span className="ml-1">{p.gender}</span>}
                   </div>
                 </button>
               );
@@ -1042,7 +1174,268 @@ export function IPadView(props: IPadViewProps) {
         <CouponAdminTab selectedPatientId={selectedPatientId} selectedPatient={selectedPatient} />
       )}
 
-      {/* ── 新規患者登録モーダル ── */}
+      {/* ── 設定モーダル ─────────────────────────────────────────────── */}
+      {showSettings && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="modal-settings">
+          <div className="absolute inset-0 bg-black/75" onClick={() => setShowSettings(false)} />
+          <div className="relative z-10 w-full max-w-[680px] mx-4 bg-card border border-border rounded-xl shadow-2xl flex flex-col max-h-[85vh]">
+            {/* Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+              <h2 className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+                <Settings className="w-4 h-4 text-primary" /> クリニック設定
+              </h2>
+              <button onClick={() => setShowSettings(false)} className="text-muted-foreground hover:text-foreground" data-testid="button-close-settings">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            {/* Tabs */}
+            <div className="flex border-b border-border px-5">
+              {([
+                { id: "clinic" as const, label: "医院基本情報", icon: Building2 },
+                { id: "staff"  as const, label: "スタッフ管理", icon: Users },
+                { id: "menu"   as const, label: "施術メニュー", icon: ClipboardList },
+                { id: "notify" as const, label: "通知設定", icon: Bell },
+              ] as const).map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setSettingsTab(t.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2.5 text-[11px] tracking-wider border-b-2 transition-colors whitespace-nowrap ${
+                    settingsTab === t.id ? "text-primary border-primary" : "text-muted-foreground border-transparent hover:text-foreground"
+                  }`}
+                  data-testid={`settings-tab-${t.id}`}
+                >
+                  <t.icon className="w-3.5 h-3.5" />{t.label}
+                </button>
+              ))}
+            </div>
+            {/* Body */}
+            <div className="flex-1 overflow-y-auto p-5">
+
+              {/* ── 医院基本情報 ── */}
+              {settingsTab === "clinic" && (
+                <div className="space-y-4" data-testid="settings-clinic-tab">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">院名<span className="text-red-400 ml-1">*</span></Label>
+                      <Input value={clinicForm.name} onChange={e => setClinicForm(f => ({ ...f, name: e.target.value }))} placeholder="例：堺整骨院" className="text-[13px]" data-testid="input-clinic-name" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">郵便番号</Label>
+                      <Input value={clinicForm.postal} onChange={e => setClinicForm(f => ({ ...f, postal: e.target.value }))} placeholder="〒000-0000" className="text-[13px]" data-testid="input-clinic-postal" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
+                      <Input value={clinicForm.phone} onChange={e => setClinicForm(f => ({ ...f, phone: e.target.value }))} placeholder="072-000-0000" className="text-[13px]" data-testid="input-clinic-phone" />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">住所</Label>
+                      <Input value={clinicForm.address} onChange={e => setClinicForm(f => ({ ...f, address: e.target.value }))} placeholder="大阪府堺市北区〇〇町" className="text-[13px]" data-testid="input-clinic-address" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">メールアドレス</Label>
+                      <Input type="email" value={clinicForm.email} onChange={e => setClinicForm(f => ({ ...f, email: e.target.value }))} placeholder="clinic@example.com" className="text-[13px]" data-testid="input-clinic-email" />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">営業時間</Label>
+                      <Input value={clinicForm.hours} onChange={e => setClinicForm(f => ({ ...f, hours: e.target.value }))} placeholder="9:00〜19:00" className="text-[13px]" data-testid="input-clinic-hours" />
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">定休日</Label>
+                      <div className="flex gap-2 flex-wrap">
+                        {["月", "火", "水", "木", "金", "土", "日"].map(d => (
+                          <button
+                            key={d}
+                            onClick={() => setClinicForm(f => ({
+                              ...f,
+                              closedDays: f.closedDays.includes(d) ? f.closedDays.filter(x => x !== d) : [...f.closedDays, d],
+                            }))}
+                            className={`w-8 h-8 text-[12px] rounded-md border transition-colors ${
+                              clinicForm.closedDays.includes(d)
+                                ? "bg-primary border-primary text-background font-bold"
+                                : "border-border text-muted-foreground hover:border-primary/50"
+                            }`}
+                            data-testid={`day-closed-${d}`}
+                          >{d}</button>
+                        ))}
+                      </div>
+                    </div>
+                    <div className="space-y-1.5 md:col-span-2">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">ウェブサイト URL</Label>
+                      <Input value={clinicForm.website} onChange={e => setClinicForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" className="text-[13px]" data-testid="input-clinic-website" />
+                    </div>
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={saveClinicSettings} disabled={isSavingSettings || !clinicForm.name.trim()} data-testid="button-save-clinic">
+                      {isSavingSettings ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</> : <><Save className="w-4 h-4" /> 保存</>}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── スタッフ管理 ── */}
+              {settingsTab === "staff" && (
+                <div className="space-y-3" data-testid="settings-staff-tab">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-mono text-muted-foreground tracking-[2px]">登録スタッフ（{staffs.length}名）</p>
+                    <Button size="sm" onClick={() => setShowAddStaff(!showAddStaff)} data-testid="button-add-staff">
+                      <Plus className="w-3.5 h-3.5" /> スタッフ追加
+                    </Button>
+                  </div>
+
+                  {/* Add staff form */}
+                  {showAddStaff && (
+                    <div className="bg-primary/5 border border-primary/20 rounded-lg p-4 space-y-3" data-testid="form-add-staff">
+                      <p className="text-[11px] font-mono text-primary tracking-[1px]">新規スタッフ</p>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-mono text-primary/70">氏名<span className="text-red-400 ml-1">*</span></Label>
+                          <Input value={addStaffForm.name} onChange={e => setAddStaffForm(f => ({ ...f, name: e.target.value }))} placeholder="氏名" className="text-[13px]" data-testid="input-staff-name" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-mono text-muted-foreground">役職</Label>
+                          <Select value={addStaffForm.role} onValueChange={v => setAddStaffForm(f => ({ ...f, role: v as typeof f.role }))}>
+                            <SelectTrigger className="text-[13px]" data-testid="select-staff-role"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="owner">院長</SelectItem>
+                              <SelectItem value="staff">施術スタッフ</SelectItem>
+                              <SelectItem value="reception">受付</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-mono text-muted-foreground">メールアドレス</Label>
+                          <Input type="email" value={addStaffForm.email} onChange={e => setAddStaffForm(f => ({ ...f, email: e.target.value }))} placeholder="staff@example.com" className="text-[13px]" data-testid="input-staff-email" />
+                        </div>
+                        <div className="space-y-1.5">
+                          <Label className="text-[11px] font-mono text-muted-foreground">表示色（カレンダー用）</Label>
+                          <div className="flex items-center gap-2">
+                            <input type="color" value={addStaffForm.calendar_color} onChange={e => setAddStaffForm(f => ({ ...f, calendar_color: e.target.value }))} className="w-10 h-9 rounded border border-border bg-transparent cursor-pointer" data-testid="input-staff-color" />
+                            <span className="text-[12px] text-muted-foreground font-mono">{addStaffForm.calendar_color}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex justify-end gap-2">
+                        <Button variant="ghost" size="sm" onClick={() => setShowAddStaff(false)}>キャンセル</Button>
+                        <Button size="sm" onClick={saveNewStaff} disabled={isSavingStaff || !addStaffForm.name.trim()} data-testid="button-save-staff">
+                          {isSavingStaff ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 保存中...</> : <><Save className="w-3.5 h-3.5" /> 追加</>}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Staff list */}
+                  <div className="space-y-2">
+                    {staffs.length === 0 && !showAddStaff && (
+                      <p className="text-center text-[12px] text-muted-foreground/50 py-8">スタッフが登録されていません</p>
+                    )}
+                    {staffs.map(s => (
+                      <div key={s.id} className="flex items-center gap-3 border border-border rounded-lg px-3 py-2.5 bg-card" data-testid={`staff-row-${s.id}`}>
+                        <div className="w-3 h-3 rounded-full shrink-0" style={{ background: s.calendar_color }} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-foreground">{s.name}</p>
+                          <p className="text-[11px] text-muted-foreground">
+                            {s.role === "owner" ? "院長" : s.role === "staff" ? "施術スタッフ" : "受付"}
+                            {s.email && ` · ${s.email}`}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => deleteStaff(s.id, s.name)}
+                          className="text-muted-foreground hover:text-red-400 transition-colors shrink-0"
+                          data-testid={`button-delete-staff-${s.id}`}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── 施術メニュー ── */}
+              {settingsTab === "menu" && (
+                <div className="space-y-3" data-testid="settings-menu-tab">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-mono text-muted-foreground tracking-[2px]">施術メニュー（{menuItems.length}件）</p>
+                    <Button size="sm" onClick={() => setMenuItems(m => [...m, { name: "", duration: 30, price: 0 }])} data-testid="button-add-menu">
+                      <Plus className="w-3.5 h-3.5" /> メニュー追加
+                    </Button>
+                  </div>
+                  <div className="space-y-2">
+                    {menuItems.map((item, i) => (
+                      <div key={i} className="grid grid-cols-[1fr_80px_90px_32px] gap-2 items-end" data-testid={`menu-row-${i}`}>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-mono text-muted-foreground">メニュー名</Label>
+                          <Input value={item.name} onChange={e => setMenuItems(m => m.map((x, j) => j === i ? { ...x, name: e.target.value } : x))} placeholder="整体施術" className="text-[12px]" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-mono text-muted-foreground">時間(分)</Label>
+                          <Input type="number" value={item.duration} onChange={e => setMenuItems(m => m.map((x, j) => j === i ? { ...x, duration: Number(e.target.value) } : x))} className="text-[12px]" />
+                        </div>
+                        <div className="space-y-1">
+                          <Label className="text-[10px] font-mono text-muted-foreground">料金(円)</Label>
+                          <Input type="number" value={item.price} onChange={e => setMenuItems(m => m.map((x, j) => j === i ? { ...x, price: Number(e.target.value) } : x))} className="text-[12px]" />
+                        </div>
+                        <button onClick={() => setMenuItems(m => m.filter((_, j) => j !== i))} className="text-muted-foreground hover:text-red-400 pb-1">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex justify-end pt-2">
+                    <Button onClick={() => toast({ title: "保存完了", description: "施術メニューを更新しました（デモ）" })} data-testid="button-save-menu">
+                      <Save className="w-4 h-4" /> 保存
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+              {/* ── 通知設定 ── */}
+              {settingsTab === "notify" && (
+                <div className="space-y-5" data-testid="settings-notify-tab">
+                  <div className="flex items-center justify-between border border-border rounded-lg px-4 py-3">
+                    <div>
+                      <p className="text-[13px] font-medium text-foreground">SMS 送信</p>
+                      <p className="text-[11px] text-muted-foreground">患者へのSMS送信を有効にする</p>
+                    </div>
+                    <button
+                      onClick={() => setNotifySettings(n => ({ ...n, smsEnabled: !n.smsEnabled }))}
+                      className={`w-10 h-6 rounded-full transition-colors relative ${notifySettings.smsEnabled ? "bg-primary" : "bg-muted"}`}
+                      data-testid="toggle-sms"
+                    >
+                      <span className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-transform shadow ${notifySettings.smsEnabled ? "translate-x-5" : "translate-x-1"}`} />
+                    </button>
+                  </div>
+                  <div className="border border-border rounded-lg px-4 py-3 space-y-2">
+                    <p className="text-[13px] font-medium text-foreground">予約リマインド送信タイミング</p>
+                    <p className="text-[11px] text-muted-foreground">次回予約の何日前にSMSを送るか</p>
+                    <div className="flex gap-2 mt-2">
+                      {[1, 2, 3].map(d => (
+                        <button
+                          key={d}
+                          onClick={() => setNotifySettings(n => ({ ...n, reminderDays: d }))}
+                          className={`px-4 py-1.5 rounded-md text-[12px] border transition-colors ${
+                            notifySettings.reminderDays === d ? "bg-primary border-primary text-background font-bold" : "border-border text-muted-foreground hover:border-primary/50"
+                          }`}
+                          data-testid={`reminder-day-${d}`}
+                        >
+                          {d}日前
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <Button onClick={() => toast({ title: "保存完了", description: "通知設定を更新しました（デモ）" })} data-testid="button-save-notify">
+                      <Save className="w-4 h-4" /> 保存
+                    </Button>
+                  </div>
+                </div>
+              )}
+
+            </div>
+          </div>
+        </div>
+      )}
+
       {showNewPatient && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="modal-new-patient">
           <div className="absolute inset-0 bg-black/70" onClick={!registeredPatient ? closeNewPatientModal : undefined} />
@@ -1103,8 +1496,12 @@ export function IPadView(props: IPadViewProps) {
                     <Input value={newPatientForm.name_kana} onChange={e => setNewPatientForm(f => ({ ...f, name_kana: e.target.value }))} placeholder="例：ヤマダ タロウ" className="text-[13px]" data-testid="input-new-patient-name" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">生年月日</Label>
+                    <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">生年月日<span className="text-red-400 ml-1">*</span></Label>
                     <Input type="date" value={newPatientForm.birth_date} onChange={e => setNewPatientForm(f => ({ ...f, birth_date: e.target.value }))} className="text-[13px]" data-testid="input-new-patient-birth" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">電話番号<span className="text-red-400 ml-1">*</span></Label>
+                    <Input type="tel" value={newPatientForm.phone} onChange={e => setNewPatientForm(f => ({ ...f, phone: e.target.value }))} placeholder="例：090-1234-5678" className="text-[13px]" data-testid="input-new-patient-phone" />
                   </div>
                   <div className="space-y-1.5">
                     <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">性別</Label>
@@ -1118,8 +1515,8 @@ export function IPadView(props: IPadViewProps) {
                     </Select>
                   </div>
                   <div className="space-y-1.5">
-                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
-                    <Input type="tel" value={newPatientForm.phone} onChange={e => setNewPatientForm(f => ({ ...f, phone: e.target.value }))} placeholder="例：090-1234-5678" className="text-[13px]" data-testid="input-new-patient-phone" />
+                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">住所（市区町村まで）</Label>
+                    <Input value={newPatientForm.address} onChange={e => setNewPatientForm(f => ({ ...f, address: e.target.value }))} placeholder="例：大阪府堺市北区" className="text-[13px]" data-testid="input-new-patient-address" />
                   </div>
                   {newPatientError && (
                     <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2" data-testid="new-patient-error">
@@ -1130,7 +1527,7 @@ export function IPadView(props: IPadViewProps) {
                 </div>
                 <div className="flex justify-end gap-2 mt-6">
                   <Button variant="ghost" size="sm" onClick={closeNewPatientModal} data-testid="button-cancel-new-patient">キャンセル</Button>
-                  <Button onClick={saveNewPatient} disabled={isSavingPatient || !newPatientForm.name_kana.trim()} data-testid="button-save-new-patient">
+                  <Button onClick={saveNewPatient} disabled={isSavingPatient || !newPatientForm.name_kana.trim() || !newPatientForm.birth_date || !newPatientForm.phone.trim()} data-testid="button-save-new-patient">
                     {isSavingPatient ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</> : <><Save className="w-4 h-4" /> 保存</>}
                   </Button>
                 </div>

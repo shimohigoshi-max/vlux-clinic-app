@@ -438,6 +438,71 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
+  // ─── Clinic Settings ────────────────────────────────────────────────
+  app.patch("/api/admin/clinic", async (req, res) => {
+    try {
+      const supabase = getSupabaseAdmin();
+      const clinicId = process.env.TEST_CLINIC_ID ?? "aaaaaaaa-0000-0000-0000-000000000001";
+      const allowedFields = ["name"];
+      const updateBody: Record<string, unknown> = {};
+      for (const f of allowedFields) {
+        if (req.body[f] !== undefined) updateBody[f] = req.body[f];
+      }
+      if (Object.keys(updateBody).length === 0) return res.json({ ok: true });
+      const { data, error } = await supabase.from("clinics").update(updateBody).eq("id", clinicId).select("id, name").single();
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ─── Staffs ─────────────────────────────────────────────────────────
+  const staffInsertSchema = z.object({
+    clinic_id: z.string().uuid(),
+    name: z.string().min(1),
+    role: z.enum(["owner", "staff", "reception"]).default("staff"),
+    email: z.string().optional().default(""),
+    calendar_color: z.string().default("#00c896"),
+  });
+
+  app.get("/api/staffs", async (req, res) => {
+    try {
+      const supabase = getSupabaseAdmin();
+      let query = supabase.from("staffs").select("*").order("created_at", { ascending: true });
+      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
+      const { data, error } = await query;
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data ?? []);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.post("/api/staffs", async (req, res) => {
+    const parsed = staffInsertSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase.from("staffs").insert(parsed.data).select().single();
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.delete("/api/staffs/:id", async (req, res) => {
+    try {
+      const supabase = getSupabaseAdmin();
+      const { error } = await supabase.from("staffs").delete().eq("id", req.params.id);
+      if (error) return res.status(500).json({ error: error.message });
+      res.json({ success: true });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ─── Patients ──────────────────────────────────────────────────────
   const patientInsertSchema = z.object({
     clinic_id: z.string().uuid(),
@@ -445,6 +510,7 @@ scoreは0〜100の整数値で出力してください。`,
     phone: z.string().default(""),
     gender: z.string().optional(),
     birth_date: z.string().optional(),
+    address: z.string().optional(),
     member_grade: z.string().default("bronze"),
   });
 
