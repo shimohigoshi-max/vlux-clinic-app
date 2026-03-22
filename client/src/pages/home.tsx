@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Stethoscope, Smartphone } from "lucide-react";
 import { IPadView } from "@/components/ipad-view";
 import { SmartphoneView } from "@/components/smartphone-view";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
   SummaryResult, KarteResult, CorrelationResult, Product, KarteHistoryEntry,
 } from "@/lib/constants";
@@ -165,7 +165,7 @@ export default function Home() {
         `${h.date} ${h.area} 疼痛${h.pain}/10 歩数${h.steps} 睡眠${h.sleep}h HRV${h.hrv} ${h.note}`
       ).join(" / ");
       const res = await apiRequest("POST", "/api/analyze", {
-        conversation: transcript,
+        transcription: transcript,
         healthData: hd,
         previousHistory: prevHistory,
         products: DEMO_PRODUCTS.map(p => ({ id: p.id, name: p.name, desc: p.desc })),
@@ -182,6 +182,8 @@ export default function Home() {
         setKarteHistory(prev => [entry, ...prev]);
         if (data.visit_id) {
           setKarteSaved(true);
+          queryClient.invalidateQueries({ queryKey: ["/api/patient/visits"] });
+          queryClient.invalidateQueries({ queryKey: ["/api/patient/profile"] });
         }
       }
       setIpadTab("karte");

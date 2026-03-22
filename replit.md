@@ -22,14 +22,20 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 ## API Endpoints
 ### AI
 - `POST /api/summarize` - Quick AI summary of conversation (auto-triggered after voice input)
-- `POST /api/analyze` - Full karte generation with lifestyle/diet/supplement/self-care fields + product recommendations
-- `POST /api/correlate` - AI correlation analysis of 8-visit treatment history vs health data (HRV, steps, sleep)
+- `POST /api/analyze` - Full karte generation. Body: `{transcription: string, ...}`. Returns `{chief_complaint, assessment, treatment_plan, lifestyle_advice[], recommended_products[], follow_up, risk_flags[], visit_id}`. Saves to Supabase visits.
+- `POST /api/correlate` - AI correlation analysis of treatment history vs health data
 
-### Supabase CRUD (requires tables to be created in Supabase dashboard)
+### Patient-facing APIs (Supabase-backed, uses demo patient)
+- `GET /api/patient/profile` — デモ患者プロフィール (name_kana, member_grade, visit_count)
+- `GET /api/patient/visits` — 来院履歴 (visited_at, chief_complaint, soap_note, lifestyle_advice, recommended_products)
+- `GET /api/patient/health-data` — 健康データ (recorded_date, steps, heart_rate_avg, sleep_minutes, active_calories)
+- `POST /api/dev/seed` — テストデータ投入 (7日分の健康データ + 3件の来院記録)
+
+### Supabase CRUD (admin)
 - `GET/POST/DELETE /api/clinics` — クリニック一覧・登録・削除
-- `GET/POST/PATCH/DELETE /api/patients` — 患者一覧・登録・更新・削除（?clinic_id=フィルタ可）
-- `GET/POST/DELETE /api/visits` — 来院記録（?patient_id=, ?clinic_id=フィルタ可）
-- `GET/POST/DELETE /api/health-data` — 健康データ（?patient_id=フィルタ可）
+- `GET/POST/PATCH/DELETE /api/patients` — 患者一覧・登録・更新・削除
+- `GET/POST/DELETE /api/visits` — 来院記録
+- `GET/POST/DELETE /api/health-data` — 健康データ
 
 ### Supabase Config
 - URL: `SUPABASE_URL` env var

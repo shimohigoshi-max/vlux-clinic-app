@@ -49,18 +49,46 @@ export interface LifeAdvice {
 
 export interface KarteResult {
   chief_complaint?: string;
-  findings?: string;
-  treatment?: string;
-  advice?: string[];
-  patient_message?: string;
-  lifestyle_notes?: string[];
-  diet_advice?: string[];
-  supplement_advice?: SupplementAdvice[];
-  self_care?: string[];
+  assessment?: string;
+  treatment_plan?: string;
+  lifestyle_advice?: string[];
   recommended_products?: string[];
-  reason?: string;
-  life_advice?: LifeAdvice;
+  follow_up?: string;
+  risk_flags?: string[];
   error?: string;
+}
+
+export interface SupabaseVisit {
+  id: string;
+  visited_at: string;
+  chief_complaint: string | null;
+  soap_note: {
+    chief_complaint?: string;
+    assessment?: string;
+    treatment_plan?: string;
+    risk_flags?: string[];
+  } | null;
+  lifestyle_advice: string[] | null;
+  recommended_products: string[] | null;
+}
+
+export interface SupabaseHealthData {
+  id: string;
+  recorded_date: string;
+  steps: number | null;
+  heart_rate_avg: number | null;
+  sleep_minutes: number | null;
+  active_calories: number | null;
+  source: string;
+}
+
+export interface PatientProfile {
+  id: string;
+  name_kana: string;
+  member_grade: string;
+  gender: string | null;
+  birth_date: string | null;
+  visit_count: number;
 }
 
 export interface KarteHistoryEntry {

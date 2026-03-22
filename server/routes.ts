@@ -554,5 +554,154 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
+  // ─── Patient-facing PWA APIs ───────────────────────────────────────
+  async function getDemoPatientId(): Promise<string> {
+    const envId = process.env.TEST_PATIENT_ID;
+    if (envId) return envId;
+    const { patient_id } = await getOrCreateDemoClinicAndPatient();
+    return patient_id;
+  }
+
+  app.get("/api/patient/profile", async (_req, res) => {
+    try {
+      const patient_id = await getDemoPatientId();
+      const supabase = getSupabaseAdmin();
+      const { data: patient, error } = await supabase
+        .from("patients")
+        .select("id, name_kana, member_grade, gender, birth_date, clinic_id")
+        .eq("id", patient_id)
+        .single();
+      if (error) return res.status(500).json({ error: error.message });
+
+      const { count } = await supabase
+        .from("visits")
+        .select("id", { count: "exact", head: true })
+        .eq("patient_id", patient_id);
+
+      res.json({ ...patient, visit_count: count ?? 0 });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get("/api/patient/visits", async (_req, res) => {
+    try {
+      const patient_id = await getDemoPatientId();
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("visits")
+        .select("id, visited_at, chief_complaint, soap_note, lifestyle_advice, recommended_products")
+        .eq("patient_id", patient_id)
+        .order("visited_at", { ascending: false })
+        .limit(20);
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data ?? []);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get("/api/patient/health-data", async (_req, res) => {
+    try {
+      const patient_id = await getDemoPatientId();
+      const supabase = getSupabaseAdmin();
+      const sevenDaysAgo = new Date();
+      sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
+      const fromDate = sevenDaysAgo.toISOString().split("T")[0];
+
+      const { data, error } = await supabase
+        .from("health_data")
+        .select("id, recorded_date, steps, heart_rate_avg, sleep_minutes, active_calories, source")
+        .eq("patient_id", patient_id)
+        .gte("recorded_date", fromDate)
+        .order("recorded_date", { ascending: true });
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data ?? []);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ─── Dev seed (テストデータ投入) ─────────────────────────────────
+  app.post("/api/dev/seed", async (_req, res) => {
+    if (process.env.NODE_ENV === "production") {
+      return res.status(403).json({ error: "production環境では実行できません" });
+    }
+    try {
+      const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
+      const supabase = getSupabaseAdmin();
+
+      // 過去7日分の健康データ
+      const today = new Date();
+      const healthRows = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(today);
+        d.setDate(d.getDate() - (6 - i));
+        return {
+          patient_id,
+          recorded_date: d.toISOString().split("T")[0],
+          steps: Math.floor(Math.random() * 5000 + 1000),
+          heart_rate_avg: Math.floor(Math.random() * 20 + 62),
+          sleep_minutes: Math.floor(Math.random() * 120 + 300),
+          active_calories: Math.floor(Math.random() * 300 + 100),
+          source: "healthkit",
+        };
+      });
+      await supabase.from("health_data").upsert(healthRows, { onConflict: "patient_id,recorded_date" });
+
+      // 過去の来院記録3件
+      const visitRows = [
+        {
+          clinic_id, patient_id,
+          visited_at: new Date(Date.now() - 14 * 86400000).toISOString(),
+          chief_complaint: "腰部の慢性的な張りと右肩の可動域制限",
+          soap_note: {
+            chief_complaint: "腰部の慢性的な張りと右肩の可動域制限",
+            assessment: "デスクワーク長時間継続による筋緊張と姿勢不良が原因と考えられる",
+            treatment_plan: "腰部手技＋肩甲骨周囲のリリース、姿勢矯正",
+            risk_flags: [],
+          },
+          lifestyle_advice: ["30分ごとに立ち上がりストレッチを行う", "肩を後ろに引く意識で座る", "就寝前に湯船で肩を温める"],
+          recommended_products: ["W001"],
+        },
+        {
+          clinic_id, patient_id,
+          visited_at: new Date(Date.now() - 28 * 86400000).toISOString(),
+          chief_complaint: "首・肩こりと頭痛",
+          soap_note: {
+            chief_complaint: "首・肩こりと頭痛",
+            assessment: "頸部筋群の過緊張による緊張型頭痛と考えられる",
+            treatment_plan: "頸部マッサージ＋トリガーポイント施術",
+            risk_flags: ["頭痛が週3回以上続く場合は神経内科受診を推奨"],
+          },
+          lifestyle_advice: ["PC画面の高さを目線に合わせる", "水分を1日1.5L以上摂取する", "寝る前のスマホ操作を控える"],
+          recommended_products: ["S001"],
+        },
+        {
+          clinic_id, patient_id,
+          visited_at: new Date(Date.now() - 42 * 86400000).toISOString(),
+          chief_complaint: "膝関節の違和感と腰部鈍痛",
+          soap_note: {
+            chief_complaint: "膝関節の違和感と腰部鈍痛",
+            assessment: "大腿四頭筋の筋力低下と骨盤前傾が複合的に影響",
+            treatment_plan: "膝周囲テーピング＋骨盤矯正",
+            risk_flags: [],
+          },
+          lifestyle_advice: ["階段を積極的に使う", "スクワット10回×3セットを毎日行う", "歩くときつま先をやや外に向ける"],
+          recommended_products: ["W002", "S001"],
+        },
+      ];
+      await supabase.from("visits").insert(visitRows);
+
+      res.json({
+        success: true,
+        patient_id,
+        message: `患者ID: ${patient_id} にテストデータを投入しました（健康データ7日分、来院記録3件）`,
+      });
+    } catch (e) {
+      console.error("Seed error:", e);
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   return httpServer;
 }

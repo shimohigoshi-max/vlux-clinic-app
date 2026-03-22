@@ -7,18 +7,17 @@ import {
   Stethoscope, Check, Bell, Shield, Sparkles, Layers,
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
-  Crown, Award, Leaf, TrendingUp, Target, MapPin,
+  Crown, Award, Leaf, TrendingUp, Target, MapPin, AlertCircle,
 } from "lucide-react";
-import type { KarteResult, Product, LifeAdvice } from "@/lib/constants";
+import type { KarteResult, Product, LifeAdvice, SupabaseVisit, SupabaseHealthData, PatientProfile } from "@/lib/constants";
 import {
-  HEALTH_DATA, DEMO_PRODUCTS, PAST_TIMELINE_ITEMS, TREATMENT_HISTORY,
+  DEMO_PRODUCTS, TREATMENT_HISTORY,
   RANKS, getRank, getNextRank,
   CLINIC_MASTER,
   statusColor, statusBg,
 } from "@/lib/constants";
 import { useState } from "react";
-
-const VISIT_COUNT = TREATMENT_HISTORY.length;
+import { useQuery } from "@tanstack/react-query";
 
 interface SmartphoneViewProps {
   patientSent: boolean;
@@ -48,6 +47,31 @@ export function SmartphoneView({
 }: SmartphoneViewProps) {
 
   const [activeClinic, setActiveClinic] = useState("tanaka");
+
+  const { data: profile } = useQuery<PatientProfile>({
+    queryKey: ["/api/patient/profile"],
+    staleTime: 30000,
+  });
+
+  const { data: visits = [], isLoading: visitsLoading, error: visitsError } = useQuery<SupabaseVisit[]>({
+    queryKey: ["/api/patient/visits"],
+    staleTime: 10000,
+  });
+
+  const { data: healthRows = [], isLoading: healthLoading, error: healthError } = useQuery<SupabaseHealthData[]>({
+    queryKey: ["/api/patient/health-data"],
+    staleTime: 30000,
+  });
+
+  const visitCount = profile?.visit_count ?? TREATMENT_HISTORY.length;
+  const memberGrade = profile?.member_grade ?? "bronze";
+
+  // 最新来院の生活アドバイス
+  const latestVisit = visits[0];
+  const latestAdvice: string[] = latestVisit?.lifestyle_advice ?? [];
+
+  // 今日以外の過去来院
+  const pastVisits = patientSent ? visits.slice(1) : visits;
 
   return (
     <div className="max-w-[400px] mx-auto py-5 px-4 animate-fade-in">
@@ -82,11 +106,17 @@ export function SmartphoneView({
           </div>
 
           <div className="grid grid-cols-3 gap-1.5 mb-3">
-            {[
-              { icon: Footprints, v: healthSynced ? HEALTH_DATA.steps.toLocaleString() : "---", label: "歩数", color: "text-red-400" },
-              { icon: Moon, v: healthSynced ? `${HEALTH_DATA.sleep}h` : "---", label: "睡眠", color: "text-amber-400" },
-              { icon: Heart, v: healthSynced ? String(HEALTH_DATA.heartRate) : "---", label: "心拍", color: "text-red-300" },
-            ].map(m => (
+            {(() => {
+              const latest = healthRows[healthRows.length - 1];
+              const stepsVal = latest?.steps ? latest.steps.toLocaleString() : "---";
+              const sleepVal = latest?.sleep_minutes ? `${(latest.sleep_minutes / 60).toFixed(1)}h` : "---";
+              const hrVal = latest?.heart_rate_avg ? String(latest.heart_rate_avg) : "---";
+              return [
+                { icon: Footprints, v: healthRows.length > 0 ? stepsVal : "---", label: "歩数", color: "text-teal-400" },
+                { icon: Moon, v: healthRows.length > 0 ? sleepVal : "---", label: "睡眠", color: "text-amber-400" },
+                { icon: Heart, v: healthRows.length > 0 ? hrVal : "---", label: "心拍", color: "text-red-400" },
+              ];
+            })().map(m => (
               <div key={m.label} className="bg-muted/40 rounded-md p-2 text-center" data-testid={`phone-metric-${m.label}`}>
                 <m.icon className={`w-4 h-4 mx-auto mb-0.5 ${m.color}`} />
                 <p className={`font-mono text-[12px] font-bold ${m.color}`}>{m.v}</p>
@@ -149,78 +179,52 @@ export function SmartphoneView({
                         <span className="text-[10px] text-primary font-medium">今日の施術レポート</span>
                         <span className="ml-auto text-[9px] text-muted-foreground">今日</span>
                       </div>
-                      <p className="text-[12px] text-foreground/70 leading-relaxed" data-testid="text-phone-patient-message">
-                        {karte.patient_message}
-                      </p>
+                      {karte.chief_complaint && (
+                        <p className="text-[12px] text-foreground/80 font-medium mb-1.5" data-testid="text-phone-chief-complaint">
+                          {karte.chief_complaint}
+                        </p>
+                      )}
+                      {karte.assessment && (
+                        <p className="text-[11px] text-muted-foreground leading-relaxed mb-1.5">{karte.assessment}</p>
+                      )}
+                      {karte.treatment_plan && (
+                        <p className="text-[11px] text-primary/70 leading-relaxed">施術: {karte.treatment_plan}</p>
+                      )}
                     </div>
 
-                    <div className="bg-amber-500/5 border border-amber-500/15 rounded-md p-3.5" data-testid="card-doctor-notes">
-                      <div className="flex items-center gap-1.5 mb-3">
-                        <ClipboardPenIcon className="w-3.5 h-3.5 text-amber-400" />
-                        <span className="text-[11px] text-amber-400 font-bold">先生からのノート</span>
+                    {(karte.lifestyle_advice && karte.lifestyle_advice.length > 0) && (
+                      <div className="bg-amber-500/5 border border-amber-500/15 rounded-md p-3.5" data-testid="card-doctor-notes">
+                        <div className="flex items-center gap-1.5 mb-2.5">
+                          <Activity className="w-3.5 h-3.5 text-amber-400" />
+                          <span className="text-[11px] text-amber-400 font-bold">生活アドバイス</span>
+                        </div>
+                        {karte.lifestyle_advice.map((n, i) => (
+                          <div key={i} className="flex gap-1.5 mb-1.5">
+                            <ChevronRight className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
+                            <span className="text-[12px] text-amber-300/70 leading-relaxed">{n}</span>
+                          </div>
+                        ))}
                       </div>
+                    )}
 
-                      {karte.lifestyle_notes && karte.lifestyle_notes.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-[9px] text-amber-400 tracking-[2px] mb-1.5 flex items-center gap-1">
-                            <Activity className="w-3 h-3" /> 生活習慣の改善ポイント
-                          </p>
-                          {karte.lifestyle_notes.map((n, i) => (
-                            <div key={i} className="flex gap-1.5 mb-1">
-                              <ChevronRight className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
-                              <span className="text-[12px] text-amber-300/70 leading-relaxed">{n}</span>
-                            </div>
-                          ))}
+                    {karte.risk_flags && karte.risk_flags.length > 0 && (
+                      <div className="bg-red-500/5 border border-red-500/20 rounded-md p-3" data-testid="card-risk-flags">
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <AlertCircle className="w-3.5 h-3.5 text-red-400" />
+                          <span className="text-[10px] text-red-400 font-medium">注意事項</span>
                         </div>
-                      )}
+                        {karte.risk_flags.map((f, i) => (
+                          <p key={i} className="text-[11px] text-red-300/70 leading-relaxed mb-1">{f}</p>
+                        ))}
+                      </div>
+                    )}
 
-                      {karte.diet_advice && karte.diet_advice.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-[9px] text-emerald-400 tracking-[2px] mb-1.5 flex items-center gap-1">
-                            <Droplets className="w-3 h-3" /> 食事・水分アドバイス
-                          </p>
-                          {karte.diet_advice.map((n, i) => (
-                            <div key={i} className="flex gap-1.5 mb-1">
-                              <ChevronRight className="w-3 h-3 text-emerald-400 mt-0.5 shrink-0" />
-                              <span className="text-[12px] text-emerald-300/70 leading-relaxed">{n}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {karte.supplement_advice && karte.supplement_advice.length > 0 && (
-                        <div className="mb-3">
-                          <p className="text-[9px] text-indigo-400 tracking-[2px] mb-1.5 flex items-center gap-1">
-                            <Sparkles className="w-3 h-3" /> サプリメントの推奨
-                          </p>
-                          {karte.supplement_advice.map((s, i) => (
-                            <div key={i} className="bg-indigo-500/10 rounded-md p-2.5 mb-1.5">
-                              <p className="text-[12px] text-indigo-300 font-semibold">{s.name}</p>
-                              <p className="text-[10px] text-muted-foreground mt-0.5 flex items-center gap-1">
-                                <Clock className="w-3 h-3" /> {s.timing}
-                              </p>
-                              <p className="text-[11px] text-indigo-300/60 mt-0.5 leading-relaxed">→ {s.reason}</p>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-
-                      {karte.self_care && karte.self_care.length > 0 && (
-                        <div>
-                          <p className="text-[9px] text-sky-400 tracking-[2px] mb-1.5 flex items-center gap-1">
-                            <Heart className="w-3 h-3" /> 自分でできるケア
-                          </p>
-                          {karte.self_care.map((n, i) => (
-                            <div key={i} className="flex gap-1.5 mb-1">
-                              <ChevronRight className="w-3 h-3 text-sky-400 mt-0.5 shrink-0" />
-                              <span className="text-[12px] text-sky-300/70 leading-relaxed">{n}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-
-                    {karte.life_advice && <LifeAdviceCard lifeAdvice={karte.life_advice} />}
+                    {karte.follow_up && (
+                      <div className="bg-card border border-border rounded-md px-3 py-2 flex items-center gap-2" data-testid="card-follow-up">
+                        <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                        <p className="text-[11px] text-muted-foreground">{karte.follow_up}</p>
+                      </div>
+                    )}
 
                     <CouponWallet expanded />
 
@@ -255,59 +259,130 @@ export function SmartphoneView({
                   </>
                 )}
 
-                {PAST_TIMELINE_ITEMS.map((item, i) => (
-                  <div key={i} className="bg-card border border-border rounded-md p-3" data-testid={`card-past-report-${i}`}>
-                    <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-center gap-1">
-                        <Stethoscope className="w-3 h-3 text-primary" />
-                        <span className="text-[10px] text-primary">施術レポート</span>
-                      </div>
-                      <span className="text-[9px] text-muted-foreground">{item.date}</span>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">{item.msg}</p>
+                {visitsLoading && (
+                  <div className="flex items-center justify-center py-6 gap-2" data-testid="visits-loading">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span className="text-[12px] text-muted-foreground">履歴を読み込んでいます...</span>
                   </div>
-                ))}
+                )}
+                {visitsError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3 flex items-center gap-2" data-testid="visits-error">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <p className="text-[11px] text-red-300">施術履歴の取得に失敗しました</p>
+                  </div>
+                )}
+                {!visitsLoading && !visitsError && pastVisits.length === 0 && !patientSent && (
+                  <div className="text-center py-4" data-testid="visits-empty">
+                    <Stethoscope className="w-6 h-6 text-muted-foreground/20 mx-auto mb-2" />
+                    <p className="text-[12px] text-muted-foreground/50">まだ記録がありません</p>
+                  </div>
+                )}
+                {pastVisits.map((visit, i) => {
+                  const d = new Date(visit.visited_at);
+                  const dateLabel = d.toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" });
+                  const soap = visit.soap_note;
+                  return (
+                    <div key={visit.id} className="bg-card border border-border rounded-md p-3" data-testid={`card-past-report-${i}`}>
+                      <div className="flex justify-between items-center mb-1.5">
+                        <div className="flex items-center gap-1">
+                          <Stethoscope className="w-3 h-3 text-primary" />
+                          <span className="text-[10px] text-primary">施術レポート</span>
+                        </div>
+                        <span className="text-[9px] text-muted-foreground font-mono">{dateLabel}</span>
+                      </div>
+                      <p className="text-[12px] text-foreground/70 font-medium mb-1">
+                        {visit.chief_complaint ?? soap?.chief_complaint ?? "主訴なし"}
+                      </p>
+                      {soap?.treatment_plan && (
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">施術: {soap.treatment_plan}</p>
+                      )}
+                      {visit.lifestyle_advice && visit.lifestyle_advice.length > 0 && (
+                        <div className="mt-1.5">
+                          {visit.lifestyle_advice.slice(0, 1).map((a, j) => (
+                            <div key={j} className="flex gap-1 items-start">
+                              <ChevronRight className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
+                              <span className="text-[11px] text-amber-300/60 leading-relaxed">{a}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             )}
 
             {phoneTab === "health" && (
               <div>
-                {!healthSynced ? (
-                  <div className="text-center py-10">
-                    <Activity className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
-                    <p className="text-[12px] text-muted-foreground/50">Apple HealthKit を接続してください</p>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <p className="text-[10px] text-primary text-right flex items-center justify-end gap-1">
-                      <Check className="w-3 h-3" /> 最終同期: 今日 9:38
-                    </p>
-                    {[
-                      { icon: Footprints, label: "今日の歩数", value: HEALTH_DATA.steps.toLocaleString(), unit: "steps", pct: (HEALTH_DATA.steps / 8000) * 100, color: statusColor(HEALTH_DATA.steps, 5000, 2000), bar: statusBg(HEALTH_DATA.steps, 5000, 2000) },
-                      { icon: Moon, label: "昨夜の睡眠", value: String(HEALTH_DATA.sleep), unit: "時間", pct: (HEALTH_DATA.sleep / 9) * 100, color: statusColor(HEALTH_DATA.sleep, 7, 5.5), bar: statusBg(HEALTH_DATA.sleep, 7, 5.5) },
-                      { icon: Heart, label: "安静時心拍", value: String(HEALTH_DATA.heartRate), unit: "bpm", pct: 60, color: "text-red-400", bar: "bg-red-400" },
-                      { icon: Zap, label: "HRV", value: String(HEALTH_DATA.hrv), unit: "ms", pct: (HEALTH_DATA.hrv / 80) * 100, color: statusColor(HEALTH_DATA.hrv, 50, 35), bar: statusBg(HEALTH_DATA.hrv, 50, 35) },
-                    ].map(m => (
-                      <div key={m.label} className="bg-card border border-border rounded-md p-3" data-testid={`phone-health-${m.label}`}>
-                        <div className="flex items-center gap-2 mb-1.5">
-                          <m.icon className={`w-4 h-4 ${m.color}`} />
-                          <div className="flex-1">
-                            <p className="text-[10px] text-muted-foreground">{m.label}</p>
-                            <p className={`font-mono text-base font-bold ${m.color}`}>
-                              {m.value} <span className="text-[10px] text-muted-foreground font-normal">{m.unit}</span>
-                            </p>
-                          </div>
-                        </div>
-                        <div className="h-1 bg-border rounded-full overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${m.bar} transition-all duration-1000`}
-                            style={{ width: `${Math.min(m.pct, 100)}%` }}
-                          />
-                        </div>
-                      </div>
-                    ))}
+                {healthLoading && (
+                  <div className="flex items-center justify-center py-10 gap-2" data-testid="health-loading">
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                    <span className="text-[12px] text-muted-foreground">健康データを読み込んでいます...</span>
                   </div>
                 )}
+                {healthError && (
+                  <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3 flex items-center gap-2 mt-3" data-testid="health-error">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                    <p className="text-[11px] text-red-300">健康データの取得に失敗しました</p>
+                  </div>
+                )}
+                {!healthLoading && !healthError && healthRows.length === 0 && (
+                  <div className="text-center py-10" data-testid="health-empty">
+                    <Activity className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
+                    <p className="text-[12px] text-muted-foreground/50">まだ記録がありません</p>
+                  </div>
+                )}
+                {!healthLoading && healthRows.length > 0 && (() => {
+                  const latest = healthRows[healthRows.length - 1];
+                  const steps = latest.steps ?? 0;
+                  const sleepH = latest.sleep_minutes ? (latest.sleep_minutes / 60) : 0;
+                  const hr = latest.heart_rate_avg ?? 0;
+                  const metrics = [
+                    { icon: Footprints, label: "今日の歩数", value: steps.toLocaleString(), unit: "steps", pct: (steps / 8000) * 100, color: statusColor(steps, 5000, 2000), bar: statusBg(steps, 5000, 2000) },
+                    { icon: Moon, label: "昨夜の睡眠", value: sleepH.toFixed(1), unit: "時間", pct: (sleepH / 9) * 100, color: statusColor(sleepH, 7, 5.5), bar: statusBg(sleepH, 7, 5.5) },
+                    { icon: Heart, label: "安静時心拍", value: hr > 0 ? String(hr) : "---", unit: "bpm", pct: hr > 0 ? Math.min(hr / 120 * 100, 100) : 0, color: "text-red-400", bar: "bg-red-400" },
+                  ];
+                  return (
+                    <div className="space-y-2">
+                      <p className="text-[10px] text-primary text-right flex items-center justify-end gap-1">
+                        <Check className="w-3 h-3" /> 最終同期: {latest.recorded_date}
+                      </p>
+                      {metrics.map(m => (
+                        <div key={m.label} className="bg-card border border-border rounded-md p-3" data-testid={`phone-health-${m.label}`}>
+                          <div className="flex items-center gap-2 mb-1.5">
+                            <m.icon className={`w-4 h-4 ${m.color}`} />
+                            <div className="flex-1">
+                              <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                              <p className={`font-mono text-base font-bold ${m.color}`}>
+                                {m.value} <span className="text-[10px] text-muted-foreground font-normal">{m.unit}</span>
+                              </p>
+                            </div>
+                          </div>
+                          <div className="h-1 bg-border rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full ${m.bar} transition-all duration-1000`} style={{ width: `${Math.min(m.pct, 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                      <p className="text-[10px] text-muted-foreground text-center pt-1">直近7日分のデータを表示</p>
+                      <div className="grid grid-cols-7 gap-1 pt-1" data-testid="health-week-chart">
+                        {healthRows.map((row, i) => {
+                          const s = row.steps ?? 0;
+                          const pct = Math.min((s / 8000) * 100, 100);
+                          const d = new Date(row.recorded_date);
+                          const dayLabel = d.toLocaleDateString("ja-JP", { weekday: "short" });
+                          return (
+                            <div key={i} className="flex flex-col items-center gap-1">
+                              <div className="w-full h-12 bg-border/40 rounded-sm relative overflow-hidden">
+                                <div className={`absolute bottom-0 w-full rounded-sm transition-all ${statusBg(s, 5000, 2000)}`} style={{ height: `${pct}%` }} />
+                              </div>
+                              <span className="text-[8px] text-muted-foreground">{dayLabel}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
               </div>
             )}
 
@@ -318,10 +393,11 @@ export function SmartphoneView({
                 cart={cart}
                 onAddToCart={onAddToCart}
                 purchaseMsg={purchaseMsg}
+                visitCount={visitCount}
               />
             )}
 
-            {phoneTab === "rank" && <RankTab />}
+            {phoneTab === "rank" && <RankTab visitCount={visitCount} />}
           </div>
         </ScrollArea>
       </div>
@@ -330,15 +406,16 @@ export function SmartphoneView({
 }
 
 function ShopTab({
-  patientSent, recommendedProducts, cart, onAddToCart, purchaseMsg,
+  patientSent, recommendedProducts, cart, onAddToCart, purchaseMsg, visitCount,
 }: {
   patientSent: boolean;
   recommendedProducts: Product[];
   cart: Product[];
   onAddToCart: (p: Product) => void;
   purchaseMsg: string;
+  visitCount: number;
 }) {
-  const rank = getRank(VISIT_COUNT);
+  const rank = getRank(visitCount);
   const recProds = patientSent ? recommendedProducts : DEMO_PRODUCTS.slice(0, 2);
 
   return (
@@ -454,9 +531,9 @@ function ShopTab({
   );
 }
 
-function RankTab() {
-  const rank = getRank(VISIT_COUNT);
-  const nextRank = getNextRank(VISIT_COUNT);
+function RankTab({ visitCount }: { visitCount: number }) {
+  const rank = getRank(visitCount);
+  const nextRank = getNextRank(visitCount);
 
   return (
     <div className="space-y-3" data-testid="rank-tab">
@@ -471,7 +548,7 @@ function RankTab() {
           </div>
           <div className="grid grid-cols-3 gap-2 mb-3.5">
             {[
-              { label: "通算来院", val: `${VISIT_COUNT}回` },
+              { label: "通算来院", val: `${visitCount}回` },
               { label: "通販割引", val: `${rank.ecDiscount}%` },
               { label: "ポイント還元", val: `${rank.pointRate}%` },
             ].map(m => (
@@ -485,19 +562,19 @@ function RankTab() {
             <div>
               <div className="flex justify-between text-[9px] mb-1" style={{ color: rank.glow }}>
                 <span>次のランク：{nextRank.label}（{nextRank.visits}回）</span>
-                <span>{VISIT_COUNT} / {nextRank.visits}回</span>
+                <span>{visitCount} / {nextRank.visits}回</span>
               </div>
               <div className="h-1.5 bg-black/40 rounded-full overflow-hidden">
                 <div
                   className="h-full rounded-full transition-all duration-1000"
                   style={{
-                    width: `${(VISIT_COUNT / nextRank.visits) * 100}%`,
+                    width: `${(visitCount / nextRank.visits) * 100}%`,
                     background: `linear-gradient(90deg,${rank.glow},${nextRank.glow})`,
                   }}
                 />
               </div>
               <p className="text-[9px] mt-1 text-right" style={{ color: rank.glow }}>
-                あと {nextRank.visits - VISIT_COUNT} 回で {nextRank.label}へ
+                あと {nextRank.visits - visitCount} 回で {nextRank.label}へ
               </p>
             </div>
           ) : (
@@ -528,7 +605,7 @@ function RankTab() {
       <div data-testid="rank-roadmap">
         <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2.5">ランクロードマップ</p>
         {[...RANKS].reverse().map((r, i) => {
-          const achieved = VISIT_COUNT >= r.visits;
+          const achieved = visitCount >= r.visits;
           const isCurrent = rank?.id === r.id;
           return (
             <div key={r.id} className="flex gap-2.5 mb-2" style={{ opacity: achieved ? 1 : 0.45 }} data-testid={`rank-tier-${r.id}`}>
