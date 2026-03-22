@@ -263,8 +263,11 @@ export default function Home() {
         <div className="flex items-center gap-2.5">
           <VLUXLogo />
           <div>
-            <h1 className="font-mono text-[15px] font-bold tracking-[4px]" data-testid="text-app-title">
+            <h1 className="font-mono text-[15px] font-bold tracking-[4px] flex items-center gap-2" data-testid="text-app-title">
               <span className="bg-gradient-to-r from-primary via-chart-3 to-purple-400 bg-clip-text text-transparent">VLUX</span>
+              {import.meta.env.VITE_TEST_MODE === 'true' && (
+                <span className="text-[9px] font-mono tracking-[2px] px-1.5 py-0.5 rounded border border-amber-500/50 text-amber-400 bg-amber-500/10" data-testid="badge-test-mode">TEST</span>
+              )}
             </h1>
             <p className="text-[9px] text-muted-foreground tracking-[3px]">CONNECTED HEALTHCARE v3.1</p>
           </div>

@@ -49,6 +49,7 @@ SUPABASE_URL = "https://hcgsdtbigidxanjtusrf.supabase.co"
 SUPABASE_PUBLISHABLE_KEY = "sb_publishable_TQ2mZXx3rgxwwIQqw7X5Fw_N7Y_6kuI"
 TEST_CLINIC_ID = "aaaaaaaa-0000-0000-0000-000000000001"
 TEST_PATIENT_ID = "bbbbbbbb-0000-0000-0000-000000000001"
+VITE_TEST_MODE = "true"
 
 [postMerge]
 path = "scripts/post-merge.sh"
