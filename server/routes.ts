@@ -475,11 +475,14 @@ scoreは0〜100の整数値で出力してください。`,
   });
 
   // ─── Visits ────────────────────────────────────────────────────────
+  // visits テーブルの実カラム: chief_complaint, soap_note(jsonb), lifestyle_advice[], recommended_products[]
+  // follow_up / risk_flags は soap_note 内に格納するため top-level カラムとしては存在しない
   const visitPatchSchema = z.object({
     chief_complaint: z.string().optional(),
     soap_note: z.record(z.unknown()).optional(),
     lifestyle_advice: z.array(z.string()).optional(),
     recommended_products: z.array(z.string()).optional(),
+    // フロントから送られてくる余分フィールドは受け取るが DB には渡さない
     follow_up: z.string().optional(),
     risk_flags: z.array(z.string()).optional(),
   });
@@ -527,9 +530,24 @@ scoreは0〜100の整数値で出力してください。`,
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
       const supabase = getSupabaseAdmin();
+      // 実在するカラムだけを抽出（follow_up / risk_flags は soap_note 内に含める）
+      const { chief_complaint, soap_note, lifestyle_advice, recommended_products,
+              follow_up, risk_flags } = parsed.data;
+
+      // soap_note を組み立て（送られてきた soap_note に follow_up/risk_flags をマージ）
+      const mergedSoapNote: Record<string, unknown> = { ...(soap_note ?? {}) };
+      if (follow_up !== undefined) mergedSoapNote.follow_up = follow_up;
+      if (risk_flags !== undefined) mergedSoapNote.risk_flags = risk_flags;
+
+      const updatePayload: Record<string, unknown> = {};
+      if (chief_complaint !== undefined) updatePayload.chief_complaint = chief_complaint;
+      if (Object.keys(mergedSoapNote).length > 0) updatePayload.soap_note = mergedSoapNote;
+      if (lifestyle_advice !== undefined) updatePayload.lifestyle_advice = lifestyle_advice;
+      if (recommended_products !== undefined) updatePayload.recommended_products = recommended_products;
+
       const { data, error } = await supabase
         .from("visits")
-        .update(parsed.data)
+        .update(updatePayload)
         .eq("id", req.params.id)
         .select()
         .single();
