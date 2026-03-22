@@ -82,6 +82,7 @@ interface AdminVisit {
     treatment_plan?: string;
     follow_up?: string;
     risk_flags?: string[];
+    staff_name?: string;
   } | null;
   lifestyle_advice: string[] | null;
 }
@@ -113,6 +114,8 @@ interface IPadViewProps {
   selectedPatientId: string | null;
   selectedClinicId: string | null;
   onPatientSelect: (patientId: string, clinicId: string) => void;
+  staffName: string;
+  onStaffChange: (name: string) => void;
 }
 
 const PRODUCT_ICONS: Record<string, typeof Shield> = {
@@ -130,7 +133,10 @@ export function IPadView(props: IPadViewProps) {
     correlationResult, isCorrelating, onDoCorrelation,
     healthSynced, healthSyncing, onSyncHealth, onSendToPatient,
     karteHistory, selectedPatientId, selectedClinicId, onPatientSelect,
+    staffName, onStaffChange,
   } = props;
+
+  const DEMO_STAFF = ["院長 山田", "スタッフ 佐藤", "スタッフ 田中"];
 
   const weeklyData = useMemo(() => genWeeklyData(), []);
 
@@ -150,6 +156,7 @@ export function IPadView(props: IPadViewProps) {
 
   // ── Visit filter ─────────────────────────────────────────────────
   const [visitPatientFilter, setVisitPatientFilter] = useState("");
+  const [visitStaffFilter, setVisitStaffFilter] = useState("");
 
   // ── Patient search ───────────────────────────────────────────────
   const [patientSearch, setPatientSearch] = useState("");
@@ -262,13 +269,19 @@ export function IPadView(props: IPadViewProps) {
   }, [patients, patientSearch]);
 
   const filteredVisits = useMemo(() => {
-    if (!visitPatientFilter.trim()) return adminVisits;
-    const q = normalizeJa(visitPatientFilter);
-    return adminVisits.filter(v => {
-      const name = patientMap[v.patient_id] ?? "";
-      return normalizeJa(name).includes(q);
-    });
-  }, [adminVisits, visitPatientFilter, patientMap]);
+    let results = adminVisits;
+    if (visitPatientFilter.trim()) {
+      const q = normalizeJa(visitPatientFilter);
+      results = results.filter(v => {
+        const name = patientMap[v.patient_id] ?? "";
+        return normalizeJa(name).includes(q);
+      });
+    }
+    if (visitStaffFilter) {
+      results = results.filter(v => v.soap_note?.staff_name === visitStaffFilter);
+    }
+    return results;
+  }, [adminVisits, visitPatientFilter, visitStaffFilter, patientMap]);
 
   // ── Save edited karte ────────────────────────────────────────────
   const saveEditedKarte = async () => {
@@ -334,13 +347,27 @@ export function IPadView(props: IPadViewProps) {
           </>
         )}
         {healthSynced && <Badge data-testid="badge-healthkit">HealthKit 連携済</Badge>}
-        {!healthSynced && (
-          <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-2">
+          {/* Staff selector */}
+          <div className="flex items-center gap-1.5 bg-muted/50 border border-border rounded-md px-2 py-1">
+            <UserCheck className="w-3.5 h-3.5 text-primary flex-shrink-0" />
+            <select
+              value={staffName}
+              onChange={e => onStaffChange(e.target.value)}
+              className="bg-transparent text-[12px] text-foreground outline-none cursor-pointer pr-1"
+              data-testid="select-staff-name"
+            >
+              {DEMO_STAFF.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          {!healthSynced && (
             <Button variant="outline" size="sm" onClick={onSyncHealth} disabled={healthSyncing} data-testid="button-sync-health">
               {healthSyncing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</> : <><Activity className="w-3.5 h-3.5" /> HealthKit 同期</>}
             </Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -725,11 +752,11 @@ export function IPadView(props: IPadViewProps) {
       {/* ── 治療履歴（Supabase） ──────────────────────────────────── */}
       {ipadTab === "visits" && (
         <div data-testid="visits-tab">
-          <div className="flex items-center gap-3 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
               治療履歴（全 {adminVisits.length} 件）
             </p>
-            <div className="flex-1 max-w-[220px]">
+            <div className="flex-1 max-w-[200px]">
               <Input
                 value={visitPatientFilter}
                 onChange={e => setVisitPatientFilter(e.target.value)}
@@ -737,6 +764,21 @@ export function IPadView(props: IPadViewProps) {
                 className="h-7 text-[12px]"
                 data-testid="input-visit-filter"
               />
+            </div>
+            {/* Staff filter */}
+            <div className="flex items-center gap-1 bg-muted/40 border border-border rounded-md px-2 h-7">
+              <UserCheck className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+              <select
+                value={visitStaffFilter}
+                onChange={e => setVisitStaffFilter(e.target.value)}
+                className="bg-transparent text-[11px] text-foreground outline-none cursor-pointer"
+                data-testid="select-visit-staff-filter"
+              >
+                <option value="">全スタッフ</option>
+                {DEMO_STAFF.map(s => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
             </div>
             <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["admin-visits", clinicId] })}>
               <RefreshCw className="w-3.5 h-3.5" />
@@ -778,9 +820,15 @@ export function IPadView(props: IPadViewProps) {
                       {i < filteredVisits.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
                     </div>
                     <div className={`flex-1 rounded-md p-2.5 mb-2.5 border ${i === 0 ? "bg-primary/5 border-primary/20" : "bg-card border-border"}`}>
-                      <div className="flex items-center gap-2 mb-1.5">
+                      <div className="flex items-center gap-2 mb-1.5 flex-wrap">
                         <span className={`text-[10px] font-mono ${i === 0 ? "text-primary" : "text-muted-foreground"}`}>{dateLabel} {timeLabel}</span>
                         {i === 0 && <Badge variant="default" className="text-[9px] h-4">最新</Badge>}
+                        {v.soap_note?.staff_name && (
+                          <span className="flex items-center gap-0.5 text-[9px] text-cyan-400/80 bg-cyan-500/10 border border-cyan-500/20 rounded px-1.5 py-0 h-4" data-testid={`badge-staff-${i}`}>
+                            <UserCheck className="w-2.5 h-2.5" />
+                            {v.soap_note.staff_name}
+                          </span>
+                        )}
                         <span className="ml-auto font-medium text-[12px] text-foreground">{patientName}</span>
                       </div>
                       <p className="text-[12px] text-foreground/80 font-medium mb-1">

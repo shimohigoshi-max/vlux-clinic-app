@@ -125,6 +125,7 @@ export default function Home() {
   const [karteVisitId, setKarteVisitId] = useState<string | null>(null);
   const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
+  const [staffName, setStaffName] = useState<string>("院長 山田");
 
   const recRef = useRef<SpeechRecognition | null>(null);
   const tRef = useRef("");
@@ -203,6 +204,7 @@ export default function Home() {
       const res = await apiRequest("POST", "/api/analyze", {
         transcription: transcript,
         healthData: hd,
+        staff_name: staffName,
         ...(selectedPatientId ? { patient_id: selectedPatientId } : {}),
         ...(selectedClinicId ? { clinic_id: selectedClinicId } : {}),
         products: DEMO_PRODUCTS.map(p => ({ id: p.id, name: p.name, desc: p.desc })),
@@ -360,6 +362,8 @@ export default function Home() {
           selectedPatientId={selectedPatientId}
           selectedClinicId={selectedClinicId}
           onPatientSelect={handlePatientSelect}
+          staffName={staffName}
+          onStaffChange={setStaffName}
         />
       )}
 

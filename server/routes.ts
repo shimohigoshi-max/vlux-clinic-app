@@ -29,6 +29,7 @@ const analyzeInputSchema = z.object({
   transcription: z.string().min(1).max(15000),
   patient_id: z.string().uuid().optional(),
   clinic_id: z.string().uuid().optional(),
+  staff_name: z.string().max(50).optional(),
   // legacy fields kept for backward compat with existing frontend
   conversation: z.string().optional(),
   healthData: z.string().optional().default(""),
@@ -211,6 +212,7 @@ key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に
       const transcription = parsed.data.transcription;
       const reqPatientId = parsed.data.patient_id;
       const reqClinicId = parsed.data.clinic_id;
+      const reqStaffName = parsed.data.staff_name;
 
       let message;
       try {
@@ -319,7 +321,7 @@ JSONに含めないこと。
             patient_id,
             visited_at: new Date().toISOString(),
             chief_complaint: validated.data.chief_complaint,
-            soap_note: validated.data,
+            soap_note: { ...validated.data, ...(reqStaffName ? { staff_name: reqStaffName } : {}) },
             lifestyle_advice: validated.data.lifestyle_advice,
             recommended_products: validated.data.recommended_products,
           })
