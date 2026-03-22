@@ -15,12 +15,12 @@ import {
   ChevronRight, MapPin, GlassWater, CircleDot,
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
-  MessageSquare, Smartphone, CheckCircle2, XCircle,
+  MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
-  Product, TreatmentRecord, KarteHistoryEntry,
+  Product, TreatmentRecord, KarteHistoryEntry, Coupon,
 } from "@/lib/constants";
 import {
   DEMO_PRODUCTS, TREATMENT_HISTORY, HEALTH_DATA,
@@ -268,6 +268,7 @@ export function IPadView(props: IPadViewProps) {
     { id: "history", label: "相関分析", icon: BarChart3 },
     ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart }] : []),
     { id: "ec-sales", label: "通販売上", icon: ShoppingCart },
+    { id: "coupon-admin", label: "クーポン確認", icon: Ticket },
   ];
 
   const gradeColor = (grade: string) => {
@@ -936,6 +937,10 @@ export function IPadView(props: IPadViewProps) {
 
       {ipadTab === "ec-sales" && <ECSalesTab />}
 
+      {ipadTab === "coupon-admin" && (
+        <CouponAdminTab selectedPatientId={selectedPatientId} selectedPatient={selectedPatient} />
+      )}
+
       {/* ── 新規患者登録モーダル ── */}
       {showNewPatient && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="modal-new-patient">
@@ -1474,6 +1479,98 @@ function ECSalesTab() {
       <p className="text-[9px] text-muted-foreground/40 text-center pt-1">
         ※ デモ用のサンプルデータです
       </p>
+    </div>
+  );
+}
+
+function CouponAdminTab({
+  selectedPatientId,
+  selectedPatient,
+}: {
+  selectedPatientId: string | null;
+  selectedPatient: AdminPatient | null;
+}) {
+  const { data: coupons = [], isLoading } = useQuery<Coupon[]>({
+    queryKey: ["/api/coupons/admin", selectedPatientId],
+    queryFn: async () => {
+      const r = await fetch(`/api/coupons?patient_id=${selectedPatientId}`);
+      if (!r.ok) return [];
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!selectedPatientId,
+    staleTime: 15000,
+  });
+
+  if (!selectedPatientId) {
+    return (
+      <div className="flex flex-col items-center justify-center py-16 text-muted-foreground" data-testid="coupon-admin-no-patient">
+        <Ticket className="w-10 h-10 mb-3 opacity-30" />
+        <p className="text-[13px]">患者を選択してください</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 animate-fade-in" data-testid="section-coupon-admin">
+      <div className="flex items-center gap-2 mb-2">
+        <Ticket className="w-4 h-4 text-primary" />
+        <h3 className="text-[13px] font-semibold text-foreground">クーポン確認</h3>
+        {selectedPatient && (
+          <span className="text-[12px] text-muted-foreground ml-1">— {selectedPatient.name_kana}</span>
+        )}
+      </div>
+
+      {isLoading ? (
+        <div className="flex justify-center py-10">
+          <Loader2 className="w-6 h-6 animate-spin text-primary" />
+        </div>
+      ) : coupons.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground" data-testid="text-no-admin-coupons">
+          <Ticket className="w-8 h-8 mx-auto mb-2 opacity-30" />
+          <p className="text-[13px]">クーポンがありません</p>
+          <p className="text-[11px] mt-1 opacity-60">患者がPWAをインストールすると自動発行されます</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {coupons.map((c) => {
+            const now = new Date();
+            const expired = new Date(c.expires_at) < now;
+            const isActive = c.status === "active" && !expired;
+            const displayStatus = c.status === "used" ? "使用済み" : expired ? "期限切れ" : "使用可能";
+            const expiresDate = new Date(c.expires_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" });
+            return (
+              <Card
+                key={c.id}
+                className={`p-4 border ${isActive ? "border-emerald-500/40 bg-emerald-500/5" : "border-border bg-muted/10 opacity-60"}`}
+                data-testid={`admin-card-coupon-${c.id}`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] text-muted-foreground">{c.description}</span>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full ${
+                    isActive ? "bg-emerald-500/20 text-emerald-400" :
+                    c.status === "used" ? "bg-muted text-muted-foreground" :
+                    "bg-muted text-muted-foreground"
+                  }`} data-testid={`admin-status-coupon-${c.id}`}>
+                    {displayStatus}
+                  </span>
+                </div>
+                <div className="flex items-end justify-between">
+                  <div>
+                    <p className="font-mono text-[22px] font-bold text-foreground tracking-widest" data-testid={`admin-code-coupon-${c.id}`}>
+                      {c.code}
+                    </p>
+                    <p className="text-[12px] font-bold text-emerald-400 mt-0.5">
+                      ¥{c.discount_amount.toLocaleString()}OFF
+                    </p>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground pb-0.5">有効期限: {expiresDate}</p>
+                </div>
+              </Card>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }

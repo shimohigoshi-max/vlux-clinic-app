@@ -84,11 +84,25 @@ export interface SupabaseHealthData {
 
 export interface PatientProfile {
   id: string;
+  clinic_id: string;
   name_kana: string;
   member_grade: string;
   gender: string | null;
   birth_date: string | null;
   visit_count: number;
+}
+
+export interface Coupon {
+  id: string;
+  patient_id: string;
+  clinic_id: string;
+  code: string;
+  discount_amount: number;
+  description: string;
+  status: "active" | "used" | "expired";
+  expires_at: string;
+  used_at: string | null;
+  created_at: string;
 }
 
 export interface KarteHistoryEntry {

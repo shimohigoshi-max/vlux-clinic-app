@@ -653,6 +653,71 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
+  // ─── Coupons ───────────────────────────────────────────────────────
+  function generateCouponCode(): string {
+    const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+    const rand = (n: number) => Array.from({ length: n }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
+    return `VLUX-${rand(4)}-${rand(4)}`;
+  }
+
+  const couponIssueSchema = z.object({
+    patient_id: z.string().uuid(),
+    clinic_id: z.string().uuid(),
+  });
+
+  app.post("/api/coupons/issue", async (req, res) => {
+    try {
+      const parsed = couponIssueSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const { patient_id, clinic_id } = parsed.data;
+      const supabase = getSupabaseAdmin();
+
+      // 重複発行チェック — activeなクーポンがすでにある場合は発行しない
+      const { data: existing } = await supabase
+        .from("coupons")
+        .select("id, code, expires_at")
+        .eq("patient_id", patient_id)
+        .eq("status", "active")
+        .limit(1);
+
+      if (existing && existing.length > 0) {
+        return res.status(409).json({
+          error: "active_coupon_exists",
+          message: "この患者にはすでに有効なクーポンがあります",
+          coupon: existing[0],
+        });
+      }
+
+      const code = generateCouponCode();
+      const expires_at = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+      const { data, error } = await supabase
+        .from("coupons")
+        .insert({ patient_id, clinic_id, code, expires_at, discount_amount: 500, description: "次回施術料500円OFF", status: "active" })
+        .select()
+        .single();
+
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.get("/api/coupons", async (req, res) => {
+    try {
+      const supabase = getSupabaseAdmin();
+      let query = supabase.from("coupons").select("*").order("created_at", { ascending: false });
+      if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
+      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
+      const { data, error } = await query;
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data ?? []);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ─── Patient-facing PWA APIs ───────────────────────────────────────
   async function getDemoPatientId(): Promise<string> {
     const envId = process.env.TEST_PATIENT_ID;
@@ -667,7 +732,7 @@ scoreは0〜100の整数値で出力してください。`,
       const supabase = getSupabaseAdmin();
       const { data: patient, error } = await supabase
         .from("patients")
-        .select("id, name_kana, member_grade, gender, birth_date, clinic_id")
+        .select("id, clinic_id, name_kana, member_grade, gender, birth_date")
         .eq("id", patient_id)
         .single();
       if (error) return res.status(500).json({ error: error.message });

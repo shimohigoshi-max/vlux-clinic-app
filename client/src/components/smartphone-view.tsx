@@ -9,15 +9,16 @@ import {
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
   Crown, Award, Leaf, TrendingUp, Target, MapPin, AlertCircle,
 } from "lucide-react";
-import type { KarteResult, Product, LifeAdvice, SupabaseVisit, SupabaseHealthData, PatientProfile } from "@/lib/constants";
+import type { KarteResult, Product, LifeAdvice, SupabaseVisit, SupabaseHealthData, PatientProfile, Coupon } from "@/lib/constants";
 import {
   DEMO_PRODUCTS, TREATMENT_HISTORY,
   RANKS, getRank, getNextRank,
   CLINIC_MASTER,
   statusColor, statusBg,
 } from "@/lib/constants";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 
 interface SmartphoneViewProps {
   patientSent: boolean;
@@ -47,11 +48,48 @@ export function SmartphoneView({
 }: SmartphoneViewProps) {
 
   const [activeClinic, setActiveClinic] = useState("tanaka");
+  const [issuedCoupon, setIssuedCoupon] = useState<Coupon | null>(null);
+  const [couponIssuing, setCouponIssuing] = useState(false);
 
   const { data: profile } = useQuery<PatientProfile>({
     queryKey: ["/api/patient/profile"],
     staleTime: 30000,
   });
+
+  const { data: coupons = [], isLoading: couponsLoading } = useQuery<Coupon[]>({
+    queryKey: ["/api/coupons", profile?.id],
+    queryFn: async () => {
+      const r = await fetch(`/api/coupons?patient_id=${profile!.id}`);
+      if (!r.ok) return [];
+      const data = await r.json();
+      return Array.isArray(data) ? data : [];
+    },
+    enabled: !!profile?.id,
+    staleTime: 15000,
+  });
+
+  const issueCoupon = async () => {
+    if (!profile?.id || !profile?.clinic_id) return;
+    setCouponIssuing(true);
+    try {
+      const data = await apiRequest("POST", "/api/coupons/issue", {
+        patient_id: profile.id,
+        clinic_id: profile.clinic_id,
+      });
+      setIssuedCoupon(data);
+      queryClient.invalidateQueries({ queryKey: ["/api/coupons", profile.id] });
+    } catch {
+      // 既存クーポンがある場合はサイレントに無視
+    } finally {
+      setCouponIssuing(false);
+    }
+  };
+
+  useEffect(() => {
+    const handler = () => { issueCoupon(); };
+    window.addEventListener("appinstalled", handler);
+    return () => window.removeEventListener("appinstalled", handler);
+  }, [profile?.id, profile?.clinic_id]);
 
   const { data: visits = [], isLoading: visitsLoading, error: visitsError } = useQuery<SupabaseVisit[]>({
     queryKey: ["/api/patient/visits"],
@@ -146,12 +184,12 @@ export function SmartphoneView({
             </p>
           )}
 
-          <div className="flex border-b border-border">
-            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "VLUXストア"], ["rank", "VLUXスコア"]] as const).map(([tab, label]) => (
+          <div className="flex border-b border-border overflow-x-auto no-scrollbar">
+            {([["timeline", "タイムライン"], ["health", "健康データ"], ["shop", "VLUXストア"], ["rank", "VLUXスコア"], ["coupon", "クーポン"]] as const).map(([tab, label]) => (
               <button
                 key={tab}
                 onClick={() => onPhoneTabChange(tab)}
-                className={`flex-1 py-2 text-[11px] tracking-wider border-b-2 transition-colors ${
+                className={`flex-none px-2 py-2 text-[11px] tracking-wider border-b-2 transition-colors whitespace-nowrap ${
                   phoneTab === tab
                     ? "text-primary border-primary"
                     : "text-muted-foreground border-transparent"
@@ -398,8 +436,103 @@ export function SmartphoneView({
             )}
 
             {phoneTab === "rank" && <RankTab visitCount={visitCount} />}
+
+            {phoneTab === "coupon" && (
+              <div className="space-y-3" data-testid="section-coupon-wallet">
+                <div className="flex items-center justify-between mb-1">
+                  <p className="text-[10px] text-muted-foreground tracking-[2px]">クーポンウォレット</p>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-6 px-2 text-[10px] border-primary/40 text-primary"
+                    disabled={couponIssuing || !profile?.id}
+                    onClick={issueCoupon}
+                    data-testid="button-issue-coupon"
+                  >
+                    {couponIssuing ? <Loader2 className="w-3 h-3 animate-spin" /> : <><Ticket className="w-3 h-3 mr-1" />テスト発行</>}
+                  </Button>
+                </div>
+                {couponsLoading ? (
+                  <div className="flex justify-center py-6"><Loader2 className="w-5 h-5 animate-spin text-primary" /></div>
+                ) : coupons.length === 0 ? (
+                  <div className="text-center py-8" data-testid="text-no-coupons">
+                    <Ticket className="w-8 h-8 mx-auto mb-2 text-muted-foreground/40" />
+                    <p className="text-[12px] text-muted-foreground">クーポンはありません</p>
+                    <p className="text-[10px] text-muted-foreground/60 mt-1">アプリインストール完了時に自動発行されます</p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {coupons.map((c) => {
+                      const now = new Date();
+                      const expired = new Date(c.expires_at) < now;
+                      const isActive = c.status === "active" && !expired;
+                      const displayStatus = c.status === "used" ? "使用済み" : expired ? "期限切れ" : "使用可能";
+                      const expiresDate = new Date(c.expires_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" });
+                      return (
+                        <div
+                          key={c.id}
+                          className={`rounded-xl border p-3.5 transition-all ${
+                            isActive
+                              ? "border-emerald-500/40 bg-emerald-500/5"
+                              : "border-border bg-muted/10 opacity-50"
+                          }`}
+                          data-testid={`card-coupon-${c.id}`}
+                        >
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-1.5">
+                              <Ticket className={`w-3.5 h-3.5 ${isActive ? "text-emerald-400" : "text-muted-foreground"}`} />
+                              <span className="text-[10px] text-muted-foreground">{c.description}</span>
+                            </div>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                              isActive ? "bg-emerald-500/20 text-emerald-400" : "bg-muted text-muted-foreground"
+                            }`} data-testid={`status-coupon-${c.id}`}>
+                              {displayStatus}
+                            </span>
+                          </div>
+                          <p className="font-mono text-[20px] font-bold text-foreground tracking-widest mb-2" data-testid={`code-coupon-${c.id}`}>
+                            {c.code}
+                          </p>
+                          <div className="flex justify-between items-center">
+                            <p className={`text-[18px] font-bold ${isActive ? "text-emerald-400" : "text-muted-foreground"}`}>
+                              ¥{c.discount_amount.toLocaleString()}OFF
+                            </p>
+                            <p className="text-[9px] text-muted-foreground">有効期限: {expiresDate}</p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </ScrollArea>
+
+        {issuedCoupon && (
+          <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 rounded-[2.5rem]" data-testid="modal-coupon-issued">
+            <div className="mx-4 bg-card border border-emerald-500/40 rounded-2xl p-5 shadow-2xl text-center">
+              <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
+                <Ticket className="w-6 h-6 text-emerald-400" />
+              </div>
+              <p className="text-[13px] font-bold text-emerald-400 mb-1">🎁 500円OFFクーポンが発行されました！</p>
+              <div className="bg-muted/30 rounded-lg p-3 my-3">
+                <p className="font-mono text-[18px] font-bold text-foreground tracking-widest" data-testid="text-issued-coupon-code">{issuedCoupon.code}</p>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  有効期限: {new Date(issuedCoupon.expires_at).toLocaleDateString("ja-JP", { year: "numeric", month: "long", day: "numeric" })}
+                </p>
+              </div>
+              <p className="text-[10px] text-muted-foreground mb-4">次回来院時にスタッフにお伝えください</p>
+              <Button
+                size="sm"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white text-[12px]"
+                onClick={() => setIssuedCoupon(null)}
+                data-testid="button-close-coupon-modal"
+              >
+                <Check className="w-3.5 h-3.5 mr-1" /> 確認しました
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
