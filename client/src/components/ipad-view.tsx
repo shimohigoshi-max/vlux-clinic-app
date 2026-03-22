@@ -3,6 +3,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Input } from "@/components/ui/input";
 import {
   Loader2, Zap, Send, Brain, Stethoscope, Check,
   Shield, Sparkles, Droplets, Layers,
@@ -11,6 +12,7 @@ import {
   AlertTriangle, TrendingUp, TrendingDown, Minus,
   ChevronRight, MapPin, GlassWater, CircleDot,
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
+  UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History,
 } from "lucide-react";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
@@ -21,7 +23,30 @@ import {
   REV_CONV_RATE,
   statusColor, statusBg, genWeeklyData,
 } from "@/lib/constants";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+
+interface ClinicInfo { id: string; name: string; }
+interface AdminPatient {
+  id: string;
+  name_kana: string;
+  member_grade: string;
+  gender: string | null;
+  birth_date: string | null;
+  created_at: string;
+}
+interface AdminVisit {
+  id: string;
+  patient_id: string;
+  visited_at: string;
+  chief_complaint: string | null;
+  soap_note: {
+    assessment?: string;
+    treatment_plan?: string;
+  } | null;
+  lifestyle_advice: string[] | null;
+}
 
 interface IPadViewProps {
   ipadTab: string;
@@ -38,6 +63,7 @@ interface IPadViewProps {
   isAnalyzing: boolean;
   onDoKarte: () => void;
   karteSaved?: boolean;
+  karteVisitId: string | null;
   correlationResult: CorrelationResult | null;
   isCorrelating: boolean;
   onDoCorrelation: () => void;
@@ -46,6 +72,9 @@ interface IPadViewProps {
   onSyncHealth: () => void;
   onSendToPatient: () => void;
   karteHistory: KarteHistoryEntry[];
+  selectedPatientId: string | null;
+  selectedClinicId: string | null;
+  onPatientSelect: (patientId: string, clinicId: string) => void;
 }
 
 const PRODUCT_ICONS: Record<string, typeof Shield> = {
@@ -59,61 +88,159 @@ export function IPadView(props: IPadViewProps) {
   const {
     ipadTab, onIpadTabChange, transcript, onTranscriptChange,
     isRecording, onStartRec, onStopRec, onLoadSample,
-    summary, isSummarizing, karte, isAnalyzing, onDoKarte, karteSaved,
+    summary, isSummarizing, karte, isAnalyzing, onDoKarte, karteSaved, karteVisitId,
     correlationResult, isCorrelating, onDoCorrelation,
     healthSynced, healthSyncing, onSyncHealth, onSendToPatient,
-    karteHistory,
+    karteHistory, selectedPatientId, selectedClinicId, onPatientSelect,
   } = props;
-
-  const recProds = karte?.recommended_products
-    ? DEMO_PRODUCTS.filter(p => karte.recommended_products!.includes(p.id))
-    : DEMO_PRODUCTS.slice(0, 2);
 
   const weeklyData = useMemo(() => genWeeklyData(), []);
 
+  // ── Editable karte state ─────────────────────────────────────────
+  const [editedKarte, setEditedKarte] = useState<KarteResult | null>(null);
+  const [editSaved, setEditSaved] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (karte && !karte.error) {
+      setEditedKarte({ ...karte });
+      setEditSaved(false);
+      setEditError(null);
+    }
+  }, [karte]);
+
+  // ── Visit filter ─────────────────────────────────────────────────
+  const [visitPatientFilter, setVisitPatientFilter] = useState("");
+
+  // ── Supabase queries ─────────────────────────────────────────────
+  const { data: clinicInfo } = useQuery<ClinicInfo>({
+    queryKey: ["/api/admin/clinic"],
+    staleTime: 60000,
+  });
+
+  const clinicId = clinicInfo?.id ?? null;
+
+  const { data: patients = [], isLoading: patientsLoading, error: patientsError } = useQuery<AdminPatient[]>({
+    queryKey: ["admin-patients", clinicId],
+    queryFn: async () => {
+      if (!clinicId) return [];
+      const res = await fetch(`/api/patients?clinic_id=${clinicId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: !!clinicId,
+    staleTime: 30000,
+  });
+
+  const { data: adminVisits = [], isLoading: visitsLoading, error: visitsError } = useQuery<AdminVisit[]>({
+    queryKey: ["admin-visits", clinicId],
+    queryFn: async () => {
+      if (!clinicId) return [];
+      const res = await fetch(`/api/visits?clinic_id=${clinicId}`, { credentials: "include" });
+      if (!res.ok) throw new Error(await res.text());
+      return res.json();
+    },
+    enabled: !!clinicId,
+    staleTime: 15000,
+  });
+
+  const patientMap = useMemo<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    patients.forEach(p => { m[p.id] = p.name_kana; });
+    return m;
+  }, [patients]);
+
+  const selectedPatient = patients.find(p => p.id === selectedPatientId) ?? null;
+
+  const filteredVisits = useMemo(() => {
+    if (!visitPatientFilter.trim()) return adminVisits;
+    const q = visitPatientFilter.trim().toLowerCase();
+    return adminVisits.filter(v => {
+      const name = patientMap[v.patient_id] ?? "";
+      return name.toLowerCase().includes(q);
+    });
+  }, [adminVisits, visitPatientFilter, patientMap]);
+
+  // ── Save edited karte ────────────────────────────────────────────
+  const saveEditedKarte = async () => {
+    if (!karteVisitId || !editedKarte) return;
+    setIsSavingEdit(true);
+    setEditError(null);
+    try {
+      await apiRequest("PATCH", `/api/visits/${karteVisitId}`, {
+        chief_complaint: editedKarte.chief_complaint,
+        soap_note: editedKarte,
+        lifestyle_advice: editedKarte.lifestyle_advice ?? [],
+        recommended_products: editedKarte.recommended_products ?? [],
+        follow_up: editedKarte.follow_up,
+        risk_flags: editedKarte.risk_flags ?? [],
+      });
+      setEditSaved(true);
+      queryClient.invalidateQueries({ queryKey: ["admin-visits", clinicId] });
+      queryClient.invalidateQueries({ queryKey: ["/api/patient/visits"] });
+    } catch (e) {
+      setEditError("保存に失敗しました。再度お試しください。");
+    }
+    setIsSavingEdit(false);
+  };
+
+  // ── Tabs ─────────────────────────────────────────────────────────
   const tabs = [
+    { id: "patients", label: "患者選択", icon: Users },
     { id: "voice", label: "音声入力", icon: Mic },
-    { id: "karte", label: "カルテ履歴", icon: FileText },
-    { id: "history", label: "履歴・相関分析", icon: BarChart3 },
+    { id: "karte", label: "カルテ", icon: FileText },
+    { id: "visits", label: "治療履歴", icon: History },
+    { id: "history", label: "相関分析", icon: BarChart3 },
     ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart }] : []),
     { id: "ec-sales", label: "通販売上", icon: ShoppingCart },
   ];
 
+  const gradeColor = (grade: string) => {
+    if (grade === "platinum") return "text-purple-400 border-purple-400/30";
+    if (grade === "gold") return "text-amber-400 border-amber-400/30";
+    if (grade === "silver") return "text-slate-300 border-slate-300/30";
+    return "text-amber-700 border-amber-700/30";
+  };
+
   return (
     <div className="max-w-[980px] mx-auto px-4 py-5 animate-fade-in">
+      {/* Header */}
       <div className="flex items-center gap-2.5 mb-4 flex-wrap">
-        <span className="text-[15px] font-bold text-foreground" data-testid="text-patient-name-ipad">田中 大輔</span>
-        <Badge variant="secondary" data-testid="badge-age">42歳 男性</Badge>
-        <Badge variant="outline" data-testid="badge-complaint">腰痛 / デスクワーク</Badge>
+        {selectedPatient ? (
+          <>
+            <UserCheck className="w-4 h-4 text-primary" />
+            <span className="text-[15px] font-bold text-foreground" data-testid="text-patient-name-ipad">{selectedPatient.name_kana}</span>
+            <Badge variant="outline" className={gradeColor(selectedPatient.member_grade)} data-testid="badge-grade">
+              {selectedPatient.member_grade.toUpperCase()}
+            </Badge>
+          </>
+        ) : (
+          <>
+            <Users className="w-4 h-4 text-muted-foreground" />
+            <span className="text-[13px] text-muted-foreground" data-testid="text-patient-name-ipad">
+              {clinicInfo?.name ?? "読み込み中..."} — 患者を選択してください
+            </span>
+          </>
+        )}
         {healthSynced && <Badge data-testid="badge-healthkit">HealthKit 連携済</Badge>}
         {!healthSynced && (
           <div className="ml-auto">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onSyncHealth}
-              disabled={healthSyncing}
-              data-testid="button-sync-health"
-            >
-              {healthSyncing ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</>
-              ) : (
-                <><Activity className="w-3.5 h-3.5" /> HealthKit 同期</>
-              )}
+            <Button variant="outline" size="sm" onClick={onSyncHealth} disabled={healthSyncing} data-testid="button-sync-health">
+              {healthSyncing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</> : <><Activity className="w-3.5 h-3.5" /> HealthKit 同期</>}
             </Button>
           </div>
         )}
       </div>
 
-      <div className="flex border-b border-border mb-5">
+      {/* Tabs */}
+      <div className="flex border-b border-border mb-5 overflow-x-auto">
         {tabs.map(t => (
           <button
             key={t.id}
             onClick={() => onIpadTabChange(t.id)}
-            className={`flex items-center gap-1.5 flex-1 py-2.5 text-[11px] tracking-wider border-b-2 transition-colors ${
-              ipadTab === t.id
-                ? "text-primary border-primary"
-                : "text-muted-foreground border-transparent"
+            className={`flex items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[11px] tracking-wider border-b-2 transition-colors ${
+              ipadTab === t.id ? "text-primary border-primary" : "text-muted-foreground border-transparent"
             }`}
             data-testid={`tab-ipad-${t.id}`}
           >
@@ -123,16 +250,103 @@ export function IPadView(props: IPadViewProps) {
         ))}
       </div>
 
+      {/* ── 患者選択 ───────────────────────────────────────────────── */}
+      {ipadTab === "patients" && (
+        <div data-testid="patients-tab">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
+              {clinicInfo ? `${clinicInfo.name} — 患者一覧（${patients.length}名）` : "クリニック情報を読み込み中..."}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["admin-patients", clinicId] })}>
+              <RefreshCw className="w-3.5 h-3.5" /> 更新
+            </Button>
+          </div>
+
+          {patientsLoading && (
+            <div className="flex items-center justify-center py-16 gap-2" data-testid="patients-loading">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <span className="text-[13px] text-muted-foreground">患者データを読み込んでいます...</span>
+            </div>
+          )}
+          {patientsError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-md p-4 flex items-center gap-2" data-testid="patients-error">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+              <p className="text-[12px] text-red-300">患者データの取得に失敗しました。再度更新してください。</p>
+            </div>
+          )}
+          {!patientsLoading && !patientsError && patients.length === 0 && (
+            <div className="text-center py-16" data-testid="patients-empty">
+              <Users className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="text-[13px] text-muted-foreground/50">患者が登録されていません</p>
+              <p className="text-[11px] text-muted-foreground/30 mt-1">/api/dev/seed を実行してテストデータを追加できます</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+            {patients.map(p => {
+              const isSelected = selectedPatientId === p.id;
+              const d = p.birth_date ? new Date(p.birth_date) : null;
+              const age = d ? (new Date().getFullYear() - d.getFullYear()) : null;
+              return (
+                <button
+                  key={p.id}
+                  onClick={() => onPatientSelect(p.id, clinicId!)}
+                  className={`text-left rounded-lg border p-3.5 transition-all ${
+                    isSelected
+                      ? "border-primary bg-primary/10 shadow-sm shadow-primary/20"
+                      : "border-border bg-card hover:border-primary/40 hover:bg-primary/5"
+                  }`}
+                  data-testid={`patient-card-${p.id}`}
+                >
+                  <div className="flex items-center gap-2 mb-1.5">
+                    {isSelected && <Check className="w-3.5 h-3.5 text-primary shrink-0" />}
+                    <span className="font-bold text-[14px] text-foreground">{p.name_kana}</span>
+                    <Badge variant="outline" className={`ml-auto text-[9px] h-5 ${gradeColor(p.member_grade)}`}>
+                      {p.member_grade.toUpperCase()}
+                    </Badge>
+                  </div>
+                  <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+                    {age && <span>{age}歳</span>}
+                    {p.gender && <span>{p.gender}</span>}
+                    <span className="ml-auto font-mono text-[10px]">
+                      登録: {new Date(p.created_at).toLocaleDateString("ja-JP", { month: "numeric", day: "numeric" })}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── 音声入力 ───────────────────────────────────────────────── */}
       {ipadTab === "voice" && (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           <div>
-            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2">施術中の会話（マイク入力 or サンプル読込）</p>
+            {/* Selected patient banner */}
+            {selectedPatient ? (
+              <div className="flex items-center gap-2 mb-3 bg-primary/10 border border-primary/20 rounded-md px-3 py-2" data-testid="selected-patient-banner">
+                <UserCheck className="w-3.5 h-3.5 text-primary shrink-0" />
+                <span className="text-[12px] text-primary font-medium">施術対象: {selectedPatient.name_kana}</span>
+                <Badge variant="outline" className={`ml-auto text-[9px] ${gradeColor(selectedPatient.member_grade)}`}>
+                  {selectedPatient.member_grade.toUpperCase()}
+                </Badge>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2" data-testid="no-patient-warning">
+                <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-[12px] text-amber-400">患者を選択してください（任意）</span>
+                <button onClick={() => onIpadTabChange("patients")} className="ml-auto text-[11px] text-primary underline">患者選択 →</button>
+              </div>
+            )}
+
+            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2">施術中の会話（マイク入力 or テキスト入力）</p>
             <div className="relative">
               <Textarea
                 value={transcript}
                 onChange={e => onTranscriptChange(e.target.value)}
                 placeholder="ここに会話テキストが入ります。録音するかサンプルを読み込んでください..."
-                className={`h-[260px] resize-none text-[12px] leading-[1.8] bg-card ${isRecording ? "border-primary" : ""}`}
+                className={`h-[240px] resize-none text-[12px] leading-[1.8] bg-card ${isRecording ? "border-primary" : ""}`}
                 data-testid="input-transcript"
               />
               {isRecording && (
@@ -143,24 +357,10 @@ export function IPadView(props: IPadViewProps) {
               )}
             </div>
             <div className="flex gap-2 mt-2.5">
-              <Button
-                className="flex-1"
-                variant={isRecording ? "destructive" : "default"}
-                onClick={isRecording ? onStopRec : onStartRec}
-                data-testid="button-record"
-              >
-                {isRecording ? (
-                  <><MicOff className="w-4 h-4" /> 録音停止</>
-                ) : (
-                  <><Mic className="w-4 h-4" /> 録音開始</>
-                )}
+              <Button className="flex-1" variant={isRecording ? "destructive" : "default"} onClick={isRecording ? onStopRec : onStartRec} data-testid="button-record">
+                {isRecording ? <><MicOff className="w-4 h-4" /> 録音停止</> : <><Mic className="w-4 h-4" /> 録音開始</>}
               </Button>
-              <Button
-                className="flex-1"
-                variant="outline"
-                onClick={onLoadSample}
-                data-testid="button-load-sample"
-              >
+              <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
                 <FileText className="w-4 h-4" /> サンプル読込
               </Button>
             </div>
@@ -171,16 +371,15 @@ export function IPadView(props: IPadViewProps) {
               disabled={isAnalyzing || !transcript.trim()}
               data-testid="button-generate-karte"
             >
-              {isAnalyzing ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> カルテ生成中...</>
-              ) : (
-                <><Zap className="w-4 h-4" /> 正式カルテ + 商品推薦を生成</>
-              )}
+              {isAnalyzing
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> カルテ生成中...</>
+                : <><Zap className="w-4 h-4" /> AIカルテを生成</>
+              }
             </Button>
             {karteSaved && (
               <div className="flex items-center gap-1.5 mt-2 justify-center" data-testid="text-karte-saved">
                 <Check className="w-3.5 h-3.5 text-emerald-400" />
-                <span className="text-[11px] text-emerald-400 font-mono">カルテ保存済み</span>
+                <span className="text-[11px] text-emerald-400 font-mono">Supabaseに自動保存済み</span>
               </div>
             )}
           </div>
@@ -188,19 +387,19 @@ export function IPadView(props: IPadViewProps) {
           <div>
             <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2">AI 要点整理（自動）</p>
             {!summary && !isSummarizing && (
-              <div className="h-[260px] bg-card border border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2">
+              <div className="h-[240px] bg-card border border-dashed border-border rounded-md flex flex-col items-center justify-center gap-2">
                 <ClipboardList className="w-7 h-7 text-muted-foreground/30" />
                 <p className="text-[12px] text-muted-foreground/50" data-testid="text-empty-summary">音声入力後、自動で要約</p>
               </div>
             )}
             {isSummarizing && (
-              <div className="h-[260px] bg-primary/5 border border-primary/20 rounded-md flex flex-col items-center justify-center">
+              <div className="h-[240px] bg-primary/5 border border-primary/20 rounded-md flex flex-col items-center justify-center">
                 <Brain className="w-7 h-7 text-primary animate-pulse" />
                 <p className="text-[12px] text-primary mt-2" data-testid="text-summarizing">要点を整理中...</p>
               </div>
             )}
             {summary && !summary.error && (
-              <ScrollArea className="h-[260px] bg-card border border-primary/20 rounded-md">
+              <ScrollArea className="h-[240px] bg-card border border-primary/20 rounded-md">
                 <div className="p-3.5 space-y-3" data-testid="panel-summary">
                   {([
                     ["主訴", summary.chief_complaint],
@@ -219,7 +418,7 @@ export function IPadView(props: IPadViewProps) {
               </ScrollArea>
             )}
             {summary?.error && (
-              <div className="h-[260px] border border-destructive/30 rounded-md flex items-center justify-center">
+              <div className="h-[240px] border border-destructive/30 rounded-md flex items-center justify-center">
                 <p className="text-[12px] text-destructive" data-testid="text-summary-error">エラー。再度お試しください。</p>
               </div>
             )}
@@ -227,231 +426,379 @@ export function IPadView(props: IPadViewProps) {
         </div>
       )}
 
+      {/* ── カルテ (edit + history) ────────────────────────────────── */}
       {ipadTab === "karte" && (
-        <KarteHistoryTab
-          karteHistory={karteHistory}
-          onSendToPatient={onSendToPatient}
-          karteSaved={karteSaved}
-        />
-      )}
-
-      {ipadTab === "history" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-          <div>
-            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2.5">治療履歴（通院 {TREATMENT_HISTORY.length} 回）</p>
-            <ScrollArea className="h-[500px] pr-1">
-              <div className="space-y-0">
-                {TREATMENT_HISTORY.map((h, i) => (
-                  <div key={i} className="flex gap-2.5" data-testid={`card-history-${i}`}>
-                    <div className="flex flex-col items-center w-5 shrink-0">
-                      <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${i === 0 ? "bg-primary" : "bg-muted"}`} />
-                      {i < TREATMENT_HISTORY.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
-                    </div>
-                    <div className={`flex-1 rounded-md p-2.5 mb-2.5 border ${i === 0 ? "bg-primary/5 border-primary/20" : "bg-card border-border"}`}>
-                      <div className="flex justify-between items-center mb-1">
-                        <span className={`text-[10px] font-mono ${i === 0 ? "text-primary" : "text-muted-foreground"}`}>{h.date}</span>
-                        {i === 0 && <Badge variant="default" className="text-[9px] h-4">今日</Badge>}
-                      </div>
-                      <div className="flex items-center gap-1 mb-1">
-                        <MapPin className="w-3 h-3 text-muted-foreground" />
-                        <span className="text-[12px] text-foreground/90 font-semibold">{h.area}</span>
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mb-2">{h.treatment}</p>
-                      <div className="flex gap-1.5 flex-wrap">
-                        {[
-                          { label: "疼痛", val: `${h.pain}/10`, color: statusColor(10 - h.pain, 4, 6) },
-                          { label: "歩数", val: h.steps.toLocaleString(), color: statusColor(h.steps, 5000, 2000) },
-                          { label: "睡眠", val: `${h.sleep}h`, color: statusColor(h.sleep, 7, 5.5) },
-                          { label: "HRV", val: String(h.hrv), color: statusColor(h.hrv, 50, 35) },
-                        ].map(m => (
-                          <span key={m.label} className="bg-background/60 rounded px-1.5 py-0.5 text-[10px]">
-                            <span className="text-muted-foreground">{m.label} </span>
-                            <span className={`font-mono ${m.color}`}>{m.val}</span>
-                          </span>
-                        ))}
-                      </div>
-                      <p className="text-[10px] text-muted-foreground/60 mt-1.5 leading-relaxed">{h.note}</p>
-                    </div>
+        <div className="space-y-5">
+          {/* Editable karte form */}
+          {editedKarte && !editedKarte.error && (
+            <Card className="border-primary/30 bg-primary/3" data-testid="karte-edit-form">
+              <div className="p-4 border-b border-primary/20 flex items-center gap-2">
+                <Edit3 className="w-4 h-4 text-primary" />
+                <p className="text-[11px] font-mono text-primary tracking-[2px]">カルテ確認・編集</p>
+                {karteVisitId && (
+                  <span className="ml-auto text-[9px] font-mono text-muted-foreground">ID: {karteVisitId.slice(0, 8)}…</span>
+                )}
+              </div>
+              <div className="p-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">主訴</p>
+                    <Input
+                      value={editedKarte.chief_complaint ?? ""}
+                      onChange={e => setEditedKarte(prev => ({ ...prev!, chief_complaint: e.target.value }))}
+                      className="text-[12px] bg-card"
+                      data-testid="edit-chief-complaint"
+                    />
                   </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
-
-          <div>
-            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2.5">AI 相関分析</p>
-            <Button
-              className="w-full mb-3.5"
-              size="lg"
-              onClick={onDoCorrelation}
-              disabled={isCorrelating}
-              data-testid="button-correlate"
-            >
-              {isCorrelating ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> 相関分析中...</>
-              ) : (
-                <><Search className="w-4 h-4" /> 治療履歴 x 生活データ 相関分析</>
-              )}
-            </Button>
-
-            {!correlationResult && !isCorrelating && (
-              <div className="bg-card border border-dashed border-border rounded-md p-8 text-center">
-                <BarChart3 className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
-                <p className="text-[12px] text-muted-foreground/50 leading-relaxed" data-testid="text-empty-correlation">
-                  ボタンを押すとAIが<br />過去{TREATMENT_HISTORY.length}回の治療データと<br />生活習慣の相関を分析します
-                </p>
-              </div>
-            )}
-
-            {isCorrelating && (
-              <div className="bg-primary/5 border border-primary/20 rounded-md p-10 text-center">
-                <Brain className="w-8 h-8 text-primary animate-pulse mx-auto mb-3" />
-                <p className="text-[12px] text-primary mb-1" data-testid="text-correlating">{TREATMENT_HISTORY.length}回分のデータを解析中...</p>
-                <p className="text-[11px] text-muted-foreground">治療部位 x 歩数 x 睡眠 x HRV の相関を計算しています</p>
-              </div>
-            )}
-
-            {correlationResult && !correlationResult.error && (
-              <ScrollArea className="h-[440px] pr-1" data-testid="panel-correlation">
-                <div className="space-y-2.5 animate-slide-up">
-                  <Card className="p-3.5 border-primary/20">
-                    <p className="text-[9px] font-mono text-primary tracking-[2px] mb-1.5">総括</p>
-                    <p className="text-[12px] text-foreground/70 leading-relaxed">{correlationResult.summary}</p>
-                  </Card>
-
-                  {correlationResult.improvement_trend && (
-                    <Card className="p-3.5">
-                      <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-2">回復トレンド</p>
-                      <div className="flex items-center gap-3">
-                        <div className="relative w-14 h-14">
-                          <svg viewBox="0 0 36 36" className="w-14 h-14" style={{ transform: "rotate(-90deg)" }}>
-                            <circle cx="18" cy="18" r="15.9" fill="none" stroke="hsl(var(--border))" strokeWidth="3" />
-                            <circle cx="18" cy="18" r="15.9" fill="none"
-                              stroke={
-                                correlationResult.improvement_trend!.score >= 60 ? "hsl(160, 80%, 45%)"
-                                : correlationResult.improvement_trend!.score >= 40 ? "hsl(40, 90%, 55%)"
-                                : "hsl(0, 70%, 55%)"
-                              }
-                              strokeWidth="3"
-                              strokeDasharray={`${correlationResult.improvement_trend!.score} 100`}
-                              strokeLinecap="round"
-                            />
-                          </svg>
-                          <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold font-mono text-foreground">
-                            {correlationResult.improvement_trend!.score}
-                          </div>
-                        </div>
-                        <div>
-                          <div className={`text-[13px] font-bold flex items-center gap-1 ${
-                            correlationResult.improvement_trend!.direction === "改善" ? "text-emerald-400"
-                            : correlationResult.improvement_trend!.direction === "悪化" ? "text-red-400"
-                            : "text-amber-400"
-                          }`}>
-                            {correlationResult.improvement_trend!.direction === "改善" ? <TrendingUp className="w-4 h-4" />
-                              : correlationResult.improvement_trend!.direction === "悪化" ? <TrendingDown className="w-4 h-4" />
-                              : <Minus className="w-4 h-4" />}
-                            {correlationResult.improvement_trend!.direction}
-                          </div>
-                          <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{correlationResult.improvement_trend!.comment}</p>
-                        </div>
-                      </div>
-                    </Card>
-                  )}
-
-                  {correlationResult.correlations && correlationResult.correlations.length > 0 && (
-                    <Card className="p-3.5">
-                      <p className="text-[9px] font-mono text-amber-400 tracking-[2px] mb-2">発見された相関パターン</p>
-                      {correlationResult.correlations.map((c, i) => (
-                        <div key={i} className={`mb-2.5 pb-2.5 ${i < correlationResult.correlations!.length - 1 ? "border-b border-border" : ""}`}>
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className="text-[12px] text-amber-300 font-semibold">{c.title}</span>
-                            <Badge
-                              variant="outline"
-                              className={`ml-auto text-[9px] h-4 ${
-                                c.strength === "強" ? "text-red-400 border-red-400/30"
-                                : c.strength === "中" ? "text-amber-400 border-amber-400/30"
-                                : "text-emerald-400 border-emerald-400/30"
-                              }`}
-                            >
-                              相関 {c.strength}
-                            </Badge>
-                          </div>
-                          <p className="text-[11px] text-foreground/60 leading-relaxed">{c.finding}</p>
-                          <p className="text-[10px] text-muted-foreground/50 mt-1">根拠: {c.data_evidence}</p>
-                        </div>
-                      ))}
-                    </Card>
-                  )}
-
-                  {correlationResult.risk_areas && correlationResult.risk_areas.length > 0 && (
-                    <Card className="p-3.5">
-                      <p className="text-[9px] font-mono text-red-400 tracking-[2px] mb-2">リスク部位</p>
-                      {correlationResult.risk_areas.map((r, i) => (
-                        <div key={i} className="flex items-start gap-2 mb-2">
-                          <Badge
-                            variant="outline"
-                            className={`text-[9px] h-4 shrink-0 mt-0.5 ${
-                              r.risk_level === "高" ? "text-red-400 border-red-400/30"
-                              : r.risk_level === "中" ? "text-amber-400 border-amber-400/30"
-                              : "text-emerald-400 border-emerald-400/30"
-                            }`}
-                          >{r.risk_level}</Badge>
-                          <div>
-                            <p className="text-[12px] text-foreground/80">{r.area}</p>
-                            <p className="text-[11px] text-muted-foreground leading-relaxed">{r.reason}</p>
-                          </div>
-                        </div>
-                      ))}
-                    </Card>
-                  )}
-
-                  {correlationResult.lifestyle_triggers && correlationResult.lifestyle_triggers.length > 0 && (
-                    <Card className="p-3.5">
-                      <p className="text-[9px] font-mono text-purple-400 tracking-[2px] mb-2">悪化トリガー</p>
-                      {correlationResult.lifestyle_triggers.map((t, i) => (
-                        <div key={i} className="flex gap-1.5 mb-1.5">
-                          <Zap className="w-3 h-3 text-purple-400 mt-0.5 shrink-0" />
-                          <div>
-                            <span className="text-[12px] text-purple-300">{t.trigger}</span>
-                            <span className="text-[11px] text-muted-foreground ml-1.5">→ {t.impact}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </Card>
-                  )}
-
-                  <Card className="p-3.5 border-chart-3/20">
-                    {correlationResult.next_session_focus && correlationResult.next_session_focus.length > 0 && (
-                      <div className="mb-2.5">
-                        <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-1.5">次回施術の重点ポイント</p>
-                        {correlationResult.next_session_focus.map((f, i) => (
-                          <div key={i} className="flex gap-1.5 mb-1">
-                            <ChevronRight className="w-3 h-3 text-chart-3 mt-0.5 shrink-0" />
-                            <span className="text-[12px] text-foreground/60 leading-relaxed">{f}</span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {correlationResult.prediction && (
-                      <div>
-                        <p className="text-[9px] font-mono text-muted-foreground tracking-[2px] mb-1">1ヶ月後の予測</p>
-                        <p className="text-[12px] text-muted-foreground/70 leading-relaxed italic">"{correlationResult.prediction}"</p>
-                      </div>
-                    )}
-                  </Card>
+                  <div>
+                    <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">見立て（Assessment）</p>
+                    <Textarea
+                      value={editedKarte.assessment ?? ""}
+                      onChange={e => setEditedKarte(prev => ({ ...prev!, assessment: e.target.value }))}
+                      className="text-[12px] bg-card h-[80px] resize-none"
+                      data-testid="edit-assessment"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">施術方針（Treatment Plan）</p>
+                    <Textarea
+                      value={editedKarte.treatment_plan ?? ""}
+                      onChange={e => setEditedKarte(prev => ({ ...prev!, treatment_plan: e.target.value }))}
+                      className="text-[12px] bg-card h-[80px] resize-none"
+                      data-testid="edit-treatment-plan"
+                    />
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">次回来院</p>
+                    <Input
+                      value={editedKarte.follow_up ?? ""}
+                      onChange={e => setEditedKarte(prev => ({ ...prev!, follow_up: e.target.value }))}
+                      className="text-[12px] bg-card"
+                      data-testid="edit-follow-up"
+                    />
+                  </div>
                 </div>
-              </ScrollArea>
-            )}
-
-            {correlationResult?.error && (
-              <div className="border border-destructive/30 rounded-md p-5 text-center">
-                <p className="text-[12px] text-destructive" data-testid="text-correlation-error">エラーが発生しました。再度お試しください。</p>
+                <div className="space-y-3">
+                  <div>
+                    <p className="text-[9px] font-mono text-amber-400/70 tracking-[2px] mb-1">生活アドバイス</p>
+                    {(editedKarte.lifestyle_advice ?? []).map((a, i) => (
+                      <div key={i} className="flex gap-1.5 mb-1">
+                        <Input
+                          value={a}
+                          onChange={e => {
+                            const arr = [...(editedKarte.lifestyle_advice ?? [])];
+                            arr[i] = e.target.value;
+                            setEditedKarte(prev => ({ ...prev!, lifestyle_advice: arr }));
+                          }}
+                          className="text-[11px] bg-card flex-1"
+                          data-testid={`edit-lifestyle-advice-${i}`}
+                        />
+                        <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => {
+                          const arr = (editedKarte.lifestyle_advice ?? []).filter((_, j) => j !== i);
+                          setEditedKarte(prev => ({ ...prev!, lifestyle_advice: arr }));
+                        }}>
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ))}
+                    <Button variant="ghost" size="sm" className="text-[11px] text-primary mt-0.5" onClick={() => {
+                      setEditedKarte(prev => ({ ...prev!, lifestyle_advice: [...(prev?.lifestyle_advice ?? []), ""] }));
+                    }}>
+                      <Plus className="w-3 h-3" /> 追加
+                    </Button>
+                  </div>
+                  <div>
+                    <p className="text-[9px] font-mono text-red-400/70 tracking-[2px] mb-1">注意事項（Risk Flags）</p>
+                    {(editedKarte.risk_flags ?? []).map((f, i) => (
+                      <div key={i} className="flex gap-1.5 mb-1">
+                        <Input
+                          value={f}
+                          onChange={e => {
+                            const arr = [...(editedKarte.risk_flags ?? [])];
+                            arr[i] = e.target.value;
+                            setEditedKarte(prev => ({ ...prev!, risk_flags: arr }));
+                          }}
+                          className="text-[11px] bg-card flex-1"
+                          data-testid={`edit-risk-flag-${i}`}
+                        />
+                        <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => {
+                          const arr = (editedKarte.risk_flags ?? []).filter((_, j) => j !== i);
+                          setEditedKarte(prev => ({ ...prev!, risk_flags: arr }));
+                        }}>
+                          <Trash2 className="w-3 h-3 text-muted-foreground" />
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+              <div className="px-4 pb-4 flex items-center gap-3">
+                <Button
+                  onClick={saveEditedKarte}
+                  disabled={isSavingEdit || !karteVisitId}
+                  className="gap-2"
+                  data-testid="button-save-karte"
+                >
+                  {isSavingEdit
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</>
+                    : <><Save className="w-4 h-4" /> visitテーブルに保存</>
+                  }
+                </Button>
+                {editSaved && (
+                  <div className="flex items-center gap-1.5" data-testid="text-edit-saved">
+                    <Check className="w-4 h-4 text-emerald-400" />
+                    <span className="text-[12px] text-emerald-400 font-mono">保存しました</span>
+                  </div>
+                )}
+                {editError && (
+                  <div className="flex items-center gap-1.5" data-testid="text-edit-error">
+                    <AlertCircle className="w-4 h-4 text-red-400" />
+                    <span className="text-[12px] text-red-400">{editError}</span>
+                    <Button variant="ghost" size="sm" onClick={saveEditedKarte} className="text-[11px] text-primary">
+                      <RefreshCw className="w-3 h-3" /> 再試行
+                    </Button>
+                  </div>
+                )}
+                <Button variant="outline" size="sm" onClick={onSendToPatient} className="ml-auto gap-2" data-testid="button-send-to-patient">
+                  <Send className="w-3.5 h-3.5" /> 患者スマホへ送信
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {/* Karte history */}
+          <KarteHistoryTab karteHistory={karteHistory} onSendToPatient={onSendToPatient} karteSaved={karteSaved} />
         </div>
       )}
 
+      {/* ── 治療履歴（Supabase） ──────────────────────────────────── */}
+      {ipadTab === "visits" && (
+        <div data-testid="visits-tab">
+          <div className="flex items-center gap-3 mb-3">
+            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
+              治療履歴（全 {adminVisits.length} 件）
+            </p>
+            <div className="flex-1 max-w-[220px]">
+              <Input
+                value={visitPatientFilter}
+                onChange={e => setVisitPatientFilter(e.target.value)}
+                placeholder="患者名で絞り込み..."
+                className="h-7 text-[12px]"
+                data-testid="input-visit-filter"
+              />
+            </div>
+            <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["admin-visits", clinicId] })}>
+              <RefreshCw className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+
+          {visitsLoading && (
+            <div className="flex items-center justify-center py-16 gap-2" data-testid="visits-loading">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <span className="text-[13px] text-muted-foreground">治療履歴を読み込んでいます...</span>
+            </div>
+          )}
+          {visitsError && (
+            <div className="bg-red-500/10 border border-red-500/20 rounded-md p-4 flex items-center gap-2" data-testid="visits-error">
+              <AlertCircle className="w-5 h-5 text-red-400 shrink-0" />
+              <p className="text-[12px] text-red-300">治療履歴の取得に失敗しました。</p>
+            </div>
+          )}
+          {!visitsLoading && !visitsError && filteredVisits.length === 0 && (
+            <div className="text-center py-16" data-testid="visits-empty">
+              <History className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="text-[13px] text-muted-foreground/50">
+                {visitPatientFilter ? "条件に一致する記録がありません" : "治療記録がありません"}
+              </p>
+            </div>
+          )}
+
+          <ScrollArea className="h-[520px] pr-1">
+            <div className="space-y-0">
+              {filteredVisits.map((v, i) => {
+                const patientName = patientMap[v.patient_id] ?? "不明";
+                const d = new Date(v.visited_at);
+                const dateLabel = d.toLocaleDateString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit" });
+                const timeLabel = d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+                return (
+                  <div key={v.id} className="flex gap-2.5" data-testid={`visit-row-${i}`}>
+                    <div className="flex flex-col items-center w-5 shrink-0">
+                      <div className={`w-2.5 h-2.5 rounded-full mt-1 shrink-0 ${i === 0 ? "bg-primary" : "bg-muted"}`} />
+                      {i < filteredVisits.length - 1 && <div className="w-px flex-1 bg-border mt-1" />}
+                    </div>
+                    <div className={`flex-1 rounded-md p-2.5 mb-2.5 border ${i === 0 ? "bg-primary/5 border-primary/20" : "bg-card border-border"}`}>
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className={`text-[10px] font-mono ${i === 0 ? "text-primary" : "text-muted-foreground"}`}>{dateLabel} {timeLabel}</span>
+                        {i === 0 && <Badge variant="default" className="text-[9px] h-4">最新</Badge>}
+                        <span className="ml-auto font-medium text-[12px] text-foreground">{patientName}</span>
+                      </div>
+                      <p className="text-[12px] text-foreground/80 font-medium mb-1">
+                        {v.chief_complaint ?? "主訴なし"}
+                      </p>
+                      {v.soap_note?.treatment_plan && (
+                        <p className="text-[11px] text-muted-foreground leading-relaxed">施術: {v.soap_note.treatment_plan}</p>
+                      )}
+                      {v.lifestyle_advice && v.lifestyle_advice.length > 0 && (
+                        <div className="flex gap-1 mt-1 flex-wrap">
+                          {v.lifestyle_advice.slice(0, 1).map((a, j) => (
+                            <span key={j} className="text-[10px] text-amber-400/70 bg-amber-500/10 rounded px-1.5 py-0.5">
+                              {a.length > 40 ? a.slice(0, 40) + "…" : a}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </ScrollArea>
+        </div>
+      )}
+
+      {/* ── 相関分析（旧: 履歴・相関分析） ─────────────────────────── */}
+      {ipadTab === "history" && (
+        <div>
+          <div className="flex justify-end mb-3">
+            <Button className="gap-2" size="lg" onClick={onDoCorrelation} disabled={isCorrelating} data-testid="button-correlate">
+              {isCorrelating ? <><Loader2 className="w-4 h-4 animate-spin" /> 相関分析中...</> : <><Search className="w-4 h-4" /> 治療履歴 x 生活データ 相関分析</>}
+            </Button>
+          </div>
+
+          {!correlationResult && !isCorrelating && (
+            <div className="bg-card border border-dashed border-border rounded-md p-8 text-center">
+              <BarChart3 className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
+              <p className="text-[12px] text-muted-foreground/50 leading-relaxed" data-testid="text-empty-correlation">
+                ボタンを押すとAIが治療データと生活習慣の相関を分析します
+              </p>
+            </div>
+          )}
+
+          {isCorrelating && (
+            <div className="bg-primary/5 border border-primary/20 rounded-md p-10 text-center">
+              <Brain className="w-8 h-8 text-primary animate-pulse mx-auto mb-3" />
+              <p className="text-[12px] text-primary mb-1" data-testid="text-correlating">データを解析中...</p>
+              <p className="text-[11px] text-muted-foreground">治療部位 x 歩数 x 睡眠 x HRV の相関を計算しています</p>
+            </div>
+          )}
+
+          {correlationResult && !correlationResult.error && (
+            <ScrollArea className="h-[500px] pr-1" data-testid="panel-correlation">
+              <div className="space-y-2.5 animate-slide-up">
+                <Card className="p-3.5 border-primary/20">
+                  <p className="text-[9px] font-mono text-primary tracking-[2px] mb-1.5">総括</p>
+                  <p className="text-[12px] text-foreground/70 leading-relaxed">{correlationResult.summary}</p>
+                </Card>
+
+                {correlationResult.improvement_trend && (
+                  <Card className="p-3.5">
+                    <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-2">回復トレンド</p>
+                    <div className="flex items-center gap-3">
+                      <div className="relative w-14 h-14">
+                        <svg viewBox="0 0 36 36" className="w-14 h-14" style={{ transform: "rotate(-90deg)" }}>
+                          <circle cx="18" cy="18" r="15.9" fill="none" stroke="hsl(var(--border))" strokeWidth="3" />
+                          <circle cx="18" cy="18" r="15.9" fill="none"
+                            stroke={correlationResult.improvement_trend!.score >= 60 ? "hsl(160, 80%, 45%)" : correlationResult.improvement_trend!.score >= 40 ? "hsl(40, 90%, 55%)" : "hsl(0, 70%, 55%)"}
+                            strokeWidth="3"
+                            strokeDasharray={`${correlationResult.improvement_trend!.score} 100`}
+                            strokeLinecap="round"
+                          />
+                        </svg>
+                        <div className="absolute inset-0 flex items-center justify-center text-[13px] font-bold font-mono text-foreground">
+                          {correlationResult.improvement_trend!.score}
+                        </div>
+                      </div>
+                      <div>
+                        <div className={`text-[13px] font-bold flex items-center gap-1 ${correlationResult.improvement_trend!.direction === "改善" ? "text-emerald-400" : correlationResult.improvement_trend!.direction === "悪化" ? "text-red-400" : "text-amber-400"}`}>
+                          {correlationResult.improvement_trend!.direction === "改善" ? <TrendingUp className="w-4 h-4" /> : correlationResult.improvement_trend!.direction === "悪化" ? <TrendingDown className="w-4 h-4" /> : <Minus className="w-4 h-4" />}
+                          {correlationResult.improvement_trend!.direction}
+                        </div>
+                        <p className="text-[11px] text-muted-foreground leading-relaxed mt-0.5">{correlationResult.improvement_trend!.comment}</p>
+                      </div>
+                    </div>
+                  </Card>
+                )}
+
+                {correlationResult.correlations && correlationResult.correlations.length > 0 && (
+                  <Card className="p-3.5">
+                    <p className="text-[9px] font-mono text-amber-400 tracking-[2px] mb-2">発見された相関パターン</p>
+                    {correlationResult.correlations.map((c, i) => (
+                      <div key={i} className={`mb-2.5 pb-2.5 ${i < correlationResult.correlations!.length - 1 ? "border-b border-border" : ""}`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-[12px] text-amber-300 font-semibold">{c.title}</span>
+                          <Badge variant="outline" className={`ml-auto text-[9px] h-4 ${c.strength === "強" ? "text-red-400 border-red-400/30" : c.strength === "中" ? "text-amber-400 border-amber-400/30" : "text-emerald-400 border-emerald-400/30"}`}>
+                            相関 {c.strength}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-foreground/60 leading-relaxed">{c.finding}</p>
+                        <p className="text-[10px] text-muted-foreground/50 mt-1">根拠: {c.data_evidence}</p>
+                      </div>
+                    ))}
+                  </Card>
+                )}
+
+                {correlationResult.risk_areas && correlationResult.risk_areas.length > 0 && (
+                  <Card className="p-3.5">
+                    <p className="text-[9px] font-mono text-red-400 tracking-[2px] mb-2">リスク部位</p>
+                    {correlationResult.risk_areas.map((r, i) => (
+                      <div key={i} className="flex items-start gap-2 mb-2">
+                        <Badge variant="outline" className={`text-[9px] h-4 shrink-0 mt-0.5 ${r.risk_level === "高" ? "text-red-400 border-red-400/30" : r.risk_level === "中" ? "text-amber-400 border-amber-400/30" : "text-emerald-400 border-emerald-400/30"}`}>{r.risk_level}</Badge>
+                        <div>
+                          <p className="text-[12px] text-foreground/80">{r.area}</p>
+                          <p className="text-[11px] text-muted-foreground leading-relaxed">{r.reason}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                )}
+
+                {correlationResult.lifestyle_triggers && correlationResult.lifestyle_triggers.length > 0 && (
+                  <Card className="p-3.5">
+                    <p className="text-[9px] font-mono text-purple-400 tracking-[2px] mb-2">悪化トリガー</p>
+                    {correlationResult.lifestyle_triggers.map((t, i) => (
+                      <div key={i} className="flex gap-1.5 mb-1.5">
+                        <Zap className="w-3 h-3 text-purple-400 mt-0.5 shrink-0" />
+                        <div>
+                          <span className="text-[12px] text-purple-300">{t.trigger}</span>
+                          <span className="text-[11px] text-muted-foreground ml-1.5">→ {t.impact}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </Card>
+                )}
+
+                <Card className="p-3.5 border-chart-3/20">
+                  {correlationResult.next_session_focus && correlationResult.next_session_focus.length > 0 && (
+                    <div className="mb-2.5">
+                      <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-1.5">次回施術の重点ポイント</p>
+                      {correlationResult.next_session_focus.map((f, i) => (
+                        <div key={i} className="flex gap-1.5 mb-1">
+                          <ChevronRight className="w-3 h-3 text-chart-3 mt-0.5 shrink-0" />
+                          <span className="text-[12px] text-foreground/60 leading-relaxed">{f}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {correlationResult.prediction && (
+                    <div>
+                      <p className="text-[9px] font-mono text-muted-foreground tracking-[2px] mb-1">1ヶ月後の予測</p>
+                      <p className="text-[12px] text-muted-foreground/70 leading-relaxed italic">"{correlationResult.prediction}"</p>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            </ScrollArea>
+          )}
+
+          {correlationResult?.error && (
+            <div className="border border-destructive/30 rounded-md p-5 text-center">
+              <p className="text-[12px] text-destructive" data-testid="text-correlation-error">エラーが発生しました。再度お試しください。</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── 健康データ ─────────────────────────────────────────────── */}
       {ipadTab === "health" && healthSynced && (
         <div className="animate-fade-in">
           <div className="flex gap-2 mb-4 flex-wrap">
@@ -480,10 +827,7 @@ export function IPadView(props: IPadViewProps) {
                 const h = Math.max((d.steps / 8000) * 90, 6);
                 return (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1">
-                    <div
-                      className={`w-full rounded-t-sm ${i === 6 ? "bg-primary" : "bg-muted"}`}
-                      style={{ height: `${h}%` }}
-                    />
+                    <div className={`w-full rounded-t-sm ${i === 6 ? "bg-primary" : "bg-muted"}`} style={{ height: `${h}%` }} />
                     <span className={`text-[9px] ${i === 6 ? "text-primary" : "text-muted-foreground"}`}>{d.date}</span>
                   </div>
                 );
@@ -587,35 +931,37 @@ function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteH
                         <p className="text-[9px] font-mono text-primary tracking-[3px] border-b border-primary/20 pb-1">正式カルテ</p>
                         {([
                           ["主訴", k.chief_complaint],
-                          ["所見", k.findings],
-                          ["処置内容", k.treatment],
+                          ["見立て", k.assessment],
+                          ["施術方針", k.treatment_plan],
+                          ["次回来院", k.follow_up],
                         ] as [string, string | undefined][]).map(([label, val]) => val ? (
                           <div key={label}>
                             <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-0.5">{label}</p>
                             <p className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-line">{val}</p>
                           </div>
                         ) : null)}
-                        {k.advice && k.advice.length > 0 && (
+                        {k.lifestyle_advice && k.lifestyle_advice.length > 0 && (
                           <div>
-                            <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-0.5">アドバイス</p>
-                            {k.advice.map((a, i) => (
+                            <p className="text-[9px] font-mono text-amber-400/70 tracking-[2px] mb-0.5">生活アドバイス</p>
+                            {k.lifestyle_advice.map((a, i) => (
                               <div key={i} className="flex items-start gap-1.5 mb-0.5">
-                                <Check className="w-3 h-3 text-primary mt-0.5 shrink-0" />
+                                <Check className="w-3 h-3 text-amber-400 mt-0.5 shrink-0" />
                                 <span className="text-[11px] text-foreground/60 leading-relaxed">{a}</span>
                               </div>
                             ))}
                           </div>
                         )}
-                        {k.patient_message && (
-                          <div className="p-2.5 bg-chart-3/10 border border-chart-3/20 rounded-md">
-                            <p className="text-[9px] font-mono text-chart-3 tracking-[2px] mb-1">患者へのメッセージ</p>
-                            <p className="text-[11px] text-foreground/60 leading-relaxed">{k.patient_message}</p>
+                        {k.risk_flags && k.risk_flags.length > 0 && (
+                          <div className="p-2.5 bg-red-500/10 border border-red-500/20 rounded-md">
+                            <p className="text-[9px] font-mono text-red-400 tracking-[2px] mb-1">注意事項</p>
+                            {k.risk_flags.map((f, i) => (
+                              <p key={i} className="text-[11px] text-red-300/70 leading-relaxed">{f}</p>
+                            ))}
                           </div>
                         )}
                         {entryProds.length > 0 && (
                           <div>
                             <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">AI レコメンド商品</p>
-                            {k.reason && <p className="text-[10px] text-muted-foreground leading-relaxed mb-2">{k.reason}</p>}
                             {entryProds.map(p => {
                               const Icon = PRODUCT_ICONS[p.id] || Shield;
                               return (

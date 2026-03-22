@@ -87,6 +87,9 @@ export default function Home() {
   const [isCorrelating, setIsCorrelating] = useState(false);
   const [karteHistory, setKarteHistory] = useState<KarteHistoryEntry[]>([]);
   const [karteSaved, setKarteSaved] = useState(false);
+  const [karteVisitId, setKarteVisitId] = useState<string | null>(null);
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+  const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
 
   const recRef = useRef<SpeechRecognition | null>(null);
   const tRef = useRef("");
@@ -157,17 +160,16 @@ export default function Home() {
     setIsAnalyzing(true);
     setKarte(null);
     setKarteSaved(false);
+    setKarteVisitId(null);
     const hd = healthSynced
       ? `歩数${HEALTH_DATA.steps}歩, 睡眠${HEALTH_DATA.sleep}h, HRV${HEALTH_DATA.hrv}`
       : "健康データ未連携";
     try {
-      const prevHistory = TREATMENT_HISTORY.slice(0, 3).map(h =>
-        `${h.date} ${h.area} 疼痛${h.pain}/10 歩数${h.steps} 睡眠${h.sleep}h HRV${h.hrv} ${h.note}`
-      ).join(" / ");
       const res = await apiRequest("POST", "/api/analyze", {
         transcription: transcript,
         healthData: hd,
-        previousHistory: prevHistory,
+        ...(selectedPatientId ? { patient_id: selectedPatientId } : {}),
+        ...(selectedClinicId ? { clinic_id: selectedClinicId } : {}),
         products: DEMO_PRODUCTS.map(p => ({ id: p.id, name: p.name, desc: p.desc })),
       });
       const data = await res.json();
@@ -182,8 +184,10 @@ export default function Home() {
         setKarteHistory(prev => [entry, ...prev]);
         if (data.visit_id) {
           setKarteSaved(true);
+          setKarteVisitId(data.visit_id);
           queryClient.invalidateQueries({ queryKey: ["/api/patient/visits"] });
           queryClient.invalidateQueries({ queryKey: ["/api/patient/profile"] });
+          queryClient.invalidateQueries({ queryKey: ["admin-visits"] });
         }
       }
       setIpadTab("karte");
@@ -191,7 +195,7 @@ export default function Home() {
       setKarte({ error: "エラーが発生しました。" });
     }
     setIsAnalyzing(false);
-  }, [transcript, healthSynced, summary]);
+  }, [transcript, healthSynced, summary, selectedPatientId, selectedClinicId]);
 
   const doCorrelation = useCallback(async () => {
     setIsCorrelating(true);
@@ -233,6 +237,12 @@ export default function Home() {
     setPatientSent(true);
     setScreen("smartphone");
     setPhoneTab("timeline");
+  }, []);
+
+  const handlePatientSelect = useCallback((patientId: string, clinicId: string) => {
+    setSelectedPatientId(patientId);
+    setSelectedClinicId(clinicId);
+    setIpadTab("voice");
   }, []);
 
   const addCart = useCallback((p: Product) => {
@@ -300,6 +310,7 @@ export default function Home() {
           isAnalyzing={isAnalyzing}
           onDoKarte={doKarte}
           karteSaved={karteSaved}
+          karteVisitId={karteVisitId}
           correlationResult={correlationResult}
           isCorrelating={isCorrelating}
           onDoCorrelation={doCorrelation}
@@ -308,6 +319,9 @@ export default function Home() {
           onSyncHealth={syncHealth}
           onSendToPatient={sendToPatient}
           karteHistory={karteHistory}
+          selectedPatientId={selectedPatientId}
+          selectedClinicId={selectedClinicId}
+          onPatientSelect={handlePatientSelect}
         />
       )}
 

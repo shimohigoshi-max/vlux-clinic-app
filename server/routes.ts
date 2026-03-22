@@ -456,7 +456,34 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
+  // ─── Admin: Clinic Info ──────────────────────────────────────────
+  app.get("/api/admin/clinic", async (_req, res) => {
+    try {
+      const supabase = getSupabaseAdmin();
+      const clinicId = process.env.TEST_CLINIC_ID;
+      if (clinicId) {
+        const { data, error } = await supabase.from("clinics").select("id, name").eq("id", clinicId).single();
+        if (!error && data) return res.json(data);
+      }
+      const demo = await getOrCreateDemoClinicAndPatient();
+      const { data, error } = await supabase.from("clinics").select("id, name").eq("id", demo.clinic_id).single();
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ─── Visits ────────────────────────────────────────────────────────
+  const visitPatchSchema = z.object({
+    chief_complaint: z.string().optional(),
+    soap_note: z.record(z.unknown()).optional(),
+    lifestyle_advice: z.array(z.string()).optional(),
+    recommended_products: z.array(z.string()).optional(),
+    follow_up: z.string().optional(),
+    risk_flags: z.array(z.string()).optional(),
+  });
+
   const visitInsertSchema = z.object({
     patient_id: z.string().uuid(),
     clinic_id: z.string().uuid().optional(),
@@ -488,6 +515,24 @@ scoreは0〜100の整数値で出力してください。`,
     try {
       const supabase = getSupabaseAdmin();
       const { data, error } = await supabase.from("visits").insert(parsed.data).select().single();
+      if (error) return res.status(500).json({ error: error.message });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  app.patch("/api/visits/:id", async (req, res) => {
+    const parsed = visitPatchSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    try {
+      const supabase = getSupabaseAdmin();
+      const { data, error } = await supabase
+        .from("visits")
+        .update(parsed.data)
+        .eq("id", req.params.id)
+        .select()
+        .single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {

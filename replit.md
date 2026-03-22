@@ -13,7 +13,7 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 
 ## Key Files
 - `client/src/pages/home.tsx` - Main page with all state management (voice recording, AI mutations, health sync, cart), VLUXLogo component
-- `client/src/components/ipad-view.tsx` - Clinician iPad view with 5 tabs: 音声入力 (Voice), カルテ履歴 (Karte History - expandable cards with formal karte + AI summary, newest first), 履歴・相関分析 (History/Correlation), 健康データ (Health), 通販売上 (EC Sales Dashboard)
+- `client/src/components/ipad-view.tsx` - Clinician iPad view with 7 tabs: 患者選択 (Patient List from Supabase), 音声入力 (Voice + patient banner), カルテ (Editable karte form with PATCH save + history), 治療履歴 (Supabase visits by clinic_id with patient name filter), 相関分析 (AI Correlation), 健康データ (Health, if synced), 通販売上 (EC Sales Dashboard)
 - `client/src/components/smartphone-view.tsx` - Patient smartphone view with 4 tabs: タイムライン, 健康データ, VLUXストア (rank-based pricing), VLUXスコア (membership card). Includes ClinicBanner for cross-clinic switching.
 - `client/src/lib/constants.ts` - Types, sample data, 8 treatment history records, 5-tier rank system, status color utilities, PHASES (5 phases), CLINIC_MASTER (2 clinics), revenue constants
 - `server/routes.ts` - AI endpoints + Supabase CRUD endpoints for 4 tables
@@ -33,8 +33,9 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 
 ### Supabase CRUD (admin)
 - `GET/POST/DELETE /api/clinics` — クリニック一覧・登録・削除
-- `GET/POST/PATCH/DELETE /api/patients` — 患者一覧・登録・更新・削除
-- `GET/POST/DELETE /api/visits` — 来院記録
+- `GET /api/admin/clinic` — 管理画面用クリニック情報 (TEST_CLINIC_ID or demo clinic)
+- `GET/POST/PATCH/DELETE /api/patients` — 患者一覧（?clinic_id=...でフィルタ）・登録・更新・削除
+- `GET/POST/PATCH/DELETE /api/visits` — 来院記録（?clinic_id=...でフィルタ）。PATCHでchief_complaint/soap_note/lifestyle_advice/risk_flags/follow_up編集可
 - `GET/POST/DELETE /api/health-data` — 健康データ
 
 ### Supabase Config
