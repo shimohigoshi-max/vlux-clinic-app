@@ -31,6 +31,11 @@ import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
+const toKatakana = (str: string) =>
+  str.replace(/[\u3041-\u3096]/g, (c) => String.fromCharCode(c.charCodeAt(0) + 0x60));
+
+const normalizeJa = (str: string) => toKatakana(str.trim().toLowerCase());
+
 interface ClinicInfo { id: string; name: string; }
 interface AdminPatient {
   id: string;
@@ -223,16 +228,16 @@ export function IPadView(props: IPadViewProps) {
 
   const filteredPatients = useMemo(() => {
     if (!patientSearch.trim()) return patients;
-    const q = patientSearch.trim().toLowerCase();
-    return patients.filter(p => p.name_kana.toLowerCase().includes(q));
+    const q = normalizeJa(patientSearch);
+    return patients.filter(p => normalizeJa(p.name_kana).includes(q));
   }, [patients, patientSearch]);
 
   const filteredVisits = useMemo(() => {
     if (!visitPatientFilter.trim()) return adminVisits;
-    const q = visitPatientFilter.trim().toLowerCase();
+    const q = normalizeJa(visitPatientFilter);
     return adminVisits.filter(v => {
       const name = patientMap[v.patient_id] ?? "";
-      return name.toLowerCase().includes(q);
+      return normalizeJa(name).includes(q);
     });
   }, [adminVisits, visitPatientFilter, patientMap]);
 

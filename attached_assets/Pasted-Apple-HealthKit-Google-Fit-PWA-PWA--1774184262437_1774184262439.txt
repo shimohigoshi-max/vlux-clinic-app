@@ -1,0 +1,113 @@
+Apple HealthKit と Google Fit の PWA連携を実装してください。
+実機テストは後でやるので、まずコードとモック表示を完成させます。
+
+【共通方針】
+- PWAはブラウザ経由でヘルスデータを取得する
+- iOSはApple HealthKit Web API（iOS16.4以降対応）
+- AndroidはGoogle Fit REST API（OAuth2認証）
+- 取得するのは基本4項目のみ（Phase 1スコープ）
+  → 歩数・心拍平均・睡眠時間・消費カロリー
+- 取得したデータはhealth_dataテーブルに保存
+
+【1. バックエンド：データ受信エンドポイント】
+
+POST /api/health-data/sync を追加。
+- 入力：patient_id・source（healthkit or googlefit）・date・steps・heart_rate_avg・sleep_minutes・active_calories
+- health_data テーブルに upsert（同じpatient_id・recorded_dateなら上書き）
+- 成功したら保存件数を返す
+
+【2. iOS HealthKit連携（PWA経由）】
+
+患者PWA画面（smartphone-view.tsx）に以下を追加。
+
+① HealthKit接続ボタン
+「HealthKitと連携する」ボタンを設置。
+押したときの処理：
+
+// iOSのHealthKit Web APIを呼び出す
+if ('health' in navigator) {
+  // iOS16.4以降対応
+  const health = await navigator.health.requestAuthorization([
+    'steps',
+    'heartRate', 
+    'sleepAnalysis',
+    'activeEnergyBurned'
+  ]);
+} else {
+  // 非対応端末の場合
+  alert('このデバイスはHealthKit連携に対応していません。\niOS16.4以降のiPhoneでご利用ください。');
+}
+
+② データ取得・送信処理
+認証後に過去7日分のデータを取得して
+/api/health-data/sync に送信する。
+
+③ モック動作
+navigator.health が存在しない場合（PC・Android・古いiOS）は
+以下のモックデータで動作確認できるようにする：
+
+const mockData = [
+  { date: '今日-0日', steps: 8432, heart_rate_avg: 72, sleep_minutes: 390, active_calories: 320 },
+  { date: '今日-1日', steps: 6201, heart_rate_avg: 68, sleep_minutes: 420, active_calories: 280 },
+  { date: '今日-2日', steps: 11043, heart_rate_avg: 75, sleep_minutes: 360, active_calories: 445 },
+  { date: '今日-3日', steps: 4892, heart_rate_avg: 70, sleep_minutes: 450, active_calories: 210 },
+  { date: '今日-4日', steps: 7654, heart_rate_avg: 73, sleep_minutes: 400, active_calories: 305 },
+  { date: '今日-5日', steps: 9321, heart_rate_avg: 71, sleep_minutes: 385, active_calories: 380 },
+  { date: '今日-6日', steps: 5678, heart_rate_avg: 69, sleep_minutes: 435, active_calories: 245 },
+]
+
+「モックデータで同期する」ボタンを別途設置して
+実機なしでもhealth_dataテーブルへの保存を確認できるようにする。
+
+【3. Android Google Fit連携（PWA経由）】
+
+① Google OAuth2認証
+「Google Fitと連携する」ボタンを設置。
+押したときの処理：
+
+- Google OAuth2認証画面を開く
+- スコープ：
+  https://www.googleapis.com/auth/fitness.activity.read
+  https://www.googleapis.com/auth/fitness.heart_rate.read
+  https://www.googleapis.com/auth/fitness.sleep.read
+- 認証完了後にアクセストークンを取得
+
+② データ取得
+Google Fit REST APIで過去7日分を取得：
+GET https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate
+
+取得項目：
+- com.google.step_count.delta（歩数）
+- com.google.heart_rate.bpm（心拍）
+- com.google.sleep.segment（睡眠）
+- com.google.calories.expended（消費カロリー）
+
+取得後に /api/health-data/sync に送信。
+
+③ 環境変数
+GOOGLE_FIT_CLIENT_ID を環境変数から読む。
+未設定の場合はモックデータで動作するようにする。
+
+【4. 同期状態の表示】
+
+患者PWA画面の「ヘルス」タブに以下を追加：
+
+- 最終同期日時（「最終同期：3分前」など）
+- 連携中のサービス（HealthKit / Google Fit のバッジ表示）
+- 「今すぐ同期」ボタン
+- 同期中はローディングスピナーを表示
+- 同期完了後にグラフを自動更新
+
+【5. health_dataのグラフ表示更新】
+
+既存の7日分グラフを以下に更新：
+- 歩数：棒グラフ（目標8000歩のラインを引く）
+- 心拍平均：折れ線グラフ
+- 睡眠時間：棒グラフ（目標7時間=420分のラインを引く）
+- データがない日は「--」と表示
+
+【完了後の確認】
+1. 「モックデータで同期する」ボタンを押してhealth_dataテーブルに7件保存されるか確認
+2. ヘルスタブのグラフにモックデータが表示されるか確認
+3. iOS実機では「HealthKitと連携する」ボタンが表示されるか確認
+4. Android実機では「Google Fitと連携する」ボタンが表示されるか確認
