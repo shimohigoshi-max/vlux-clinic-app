@@ -52,17 +52,52 @@ interface SpeechRecognitionAlternative {
 
 function VLUXLogo() {
   return (
-    <svg viewBox="0 0 120 40" className="w-12 h-10">
+    <svg viewBox="0 0 44 44" className="w-9 h-9" fill="none">
       <defs>
-        <linearGradient id="vluxGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+        <linearGradient id="vl-g1" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
           <stop offset="0%" stopColor="#00C896" />
-          <stop offset="50%" stopColor="#0073E6" />
+          <stop offset="55%" stopColor="#0073E6" />
           <stop offset="100%" stopColor="#8866FF" />
         </linearGradient>
+        <linearGradient id="vl-g2" x1="0" y1="0" x2="44" y2="44" gradientUnits="userSpaceOnUse">
+          <stop offset="0%" stopColor="#00C896" stopOpacity="0.25" />
+          <stop offset="100%" stopColor="#8866FF" stopOpacity="0.25" />
+        </linearGradient>
+        <filter id="vl-glow">
+          <feGaussianBlur stdDeviation="1.5" result="blur" />
+          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
+        </filter>
       </defs>
-      <text x="0" y="32" fontFamily="Space Mono, monospace" fontSize="36" fontWeight="700" fill="url(#vluxGrad)" letterSpacing="4">
-        VLUX
-      </text>
+
+      {/* Outer hexagon */}
+      <polygon
+        points="22,2 40,12 40,32 22,42 4,32 4,12"
+        stroke="url(#vl-g1)"
+        strokeWidth="1.2"
+        fill="url(#vl-g2)"
+      />
+
+      {/* Inner ring */}
+      <polygon
+        points="22,7 35,14.5 35,29.5 22,37 9,29.5 9,14.5"
+        stroke="url(#vl-g1)"
+        strokeWidth="0.5"
+        fill="none"
+        opacity="0.4"
+      />
+
+      {/* ECG-style V pulse line */}
+      <polyline
+        points="9,22 14,22 17,15 22,29 27,15 30,22 35,22"
+        stroke="url(#vl-g1)"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        filter="url(#vl-glow)"
+      />
+
+      {/* Center dot */}
+      <circle cx="22" cy="22" r="1.5" fill="url(#vl-g1)" />
     </svg>
   );
 }
