@@ -15,7 +15,7 @@ import {
   ChevronRight, MapPin, GlassWater, CircleDot,
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
-  MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket,
+  MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket, CalendarDays, ChevronLeft, ChevronRight as ChevronRightIcon,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type {
@@ -80,6 +80,8 @@ interface AdminVisit {
   soap_note: {
     assessment?: string;
     treatment_plan?: string;
+    follow_up?: string;
+    risk_flags?: string[];
   } | null;
   lifestyle_advice: string[] | null;
 }
@@ -294,6 +296,7 @@ export function IPadView(props: IPadViewProps) {
   // ── Tabs ─────────────────────────────────────────────────────────
   const tabs = [
     { id: "patients", label: "患者選択", icon: Users },
+    { id: "schedule", label: "予約管理", icon: CalendarDays },
     { id: "voice", label: "音声入力", icon: Mic },
     { id: "karte", label: "カルテ", icon: FileText },
     { id: "visits", label: "治療履歴", icon: History },
@@ -447,6 +450,11 @@ export function IPadView(props: IPadViewProps) {
           </div>
 
         </div>
+      )}
+
+      {/* ── 予約管理 ───────────────────────────────────────────────── */}
+      {ipadTab === "schedule" && (
+        <ScheduleTab visits={adminVisits} patientMap={patientMap} clinicName={clinicInfo?.name ?? "整骨院"} />
       )}
 
       {/* ── 音声入力 ───────────────────────────────────────────────── */}
@@ -1329,6 +1337,231 @@ function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteH
           })}
         </div>
       </ScrollArea>
+    </div>
+  );
+}
+
+function ScheduleTab({ visits, patientMap, clinicName }: {
+  visits: AdminVisit[];
+  patientMap: Record<string, string>;
+  clinicName: string;
+}) {
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  const appointments = useMemo(() => {
+    return visits
+      .filter(v => v.soap_note?.follow_up)
+      .map(v => {
+        const days = parseFollowUpDays(v.soap_note!.follow_up!);
+        const d = new Date(v.visited_at);
+        d.setHours(0, 0, 0, 0);
+        d.setDate(d.getDate() + days);
+        return {
+          patient_name: patientMap[v.patient_id] ?? "不明な患者",
+          patient_id: v.patient_id,
+          chief_complaint: v.chief_complaint,
+          follow_up_text: v.soap_note!.follow_up!,
+          expected_date: d,
+          visit_id: v.id,
+        };
+      })
+      .sort((a, b) => a.expected_date.getTime() - b.expected_date.getTime());
+  }, [visits, patientMap]);
+
+  const weekDays = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dow = today.getDay();
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1) + weekOffset * 7);
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [weekOffset]);
+
+  const todayBase = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
+  const isSameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+  const isToday = (d: Date) => isSameDay(d, todayBase);
+  const isPast = (d: Date) => d < todayBase;
+  const getAppts = (day: Date) => appointments.filter(a => isSameDay(a.expected_date, day));
+  const todayAppts = getAppts(todayBase);
+  const dayNames = ["月", "火", "水", "木", "金", "土", "日"];
+  const weekLabel = `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} — ${weekDays[6].getMonth()+1}/${weekDays[6].getDate()}`;
+  const getSlot = (idx: number) => `${(9 + idx).toString().padStart(2,"0")}:00`;
+
+  return (
+    <div data-testid="schedule-tab" className="space-y-4">
+      {/* ヘッダー */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <CalendarDays className="w-4 h-4 text-primary" />
+          <span className="font-mono text-[13px] text-foreground font-bold tracking-wider">予約管理</span>
+          <span className="text-[11px] text-muted-foreground">{clinicName}</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setWeekOffset(o => o - 1)} data-testid="button-schedule-prev">
+            <ChevronLeft className="w-4 h-4" />
+          </Button>
+          <span className="font-mono text-[12px] text-foreground min-w-[110px] text-center">{weekLabel}</span>
+          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setWeekOffset(o => o + 1)} data-testid="button-schedule-next">
+            <ChevronRightIcon className="w-4 h-4" />
+          </Button>
+          <Button variant="outline" size="sm" className="text-[11px] h-8" onClick={() => setWeekOffset(0)} data-testid="button-schedule-today">
+            今週
+          </Button>
+        </div>
+      </div>
+
+      {/* 本日のサマリー */}
+      {weekOffset === 0 && (
+        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3" data-testid="schedule-today-summary">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
+            <span className="text-[11px] font-mono text-primary tracking-wider">本日の予約</span>
+            <Badge variant="outline" className="border-primary/30 text-primary text-[10px]">{todayAppts.length}件</Badge>
+          </div>
+          {todayAppts.length === 0 ? (
+            <p className="text-[12px] text-muted-foreground">本日の予約はありません</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {todayAppts.map((a, i) => (
+                <div key={a.visit_id} className="bg-primary/10 rounded-md px-2.5 py-1.5 flex items-center gap-2" data-testid={`schedule-today-appt-${a.visit_id}`}>
+                  <span className="font-mono text-[10px] text-primary/70">{getSlot(i)}</span>
+                  <span className="text-[12px] text-foreground font-medium">{a.patient_name}</span>
+                  {a.chief_complaint && <span className="text-[10px] text-muted-foreground">/ {a.chief_complaint}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 週次グリッド */}
+      <div className="grid grid-cols-7 gap-1.5" data-testid="schedule-week-grid">
+        {weekDays.map((day, di) => {
+          const appts = getAppts(day);
+          const todayFlag = isToday(day);
+          const pastFlag = isPast(day);
+          const isSun = di === 6;
+          const isSat = di === 5;
+          return (
+            <div
+              key={di}
+              className={`rounded-lg border p-2 min-h-[170px] flex flex-col ${
+                todayFlag
+                  ? "border-primary/60 bg-primary/5"
+                  : isSat || isSun
+                  ? "border-border/50 bg-card/20"
+                  : "border-border bg-card/40"
+              }`}
+              data-testid={`schedule-col-${di}`}
+            >
+              {/* 曜日ヘッダー */}
+              <div className="flex items-end justify-between mb-1.5">
+                <span className={`text-[10px] font-mono font-bold ${
+                  todayFlag ? "text-primary" : isSun ? "text-red-400" : isSat ? "text-blue-400" : "text-muted-foreground"
+                }`}>{dayNames[di]}</span>
+                <span className={`text-[15px] font-mono font-bold ${
+                  todayFlag ? "text-primary" : pastFlag ? "text-muted-foreground/40" : "text-foreground"
+                }`}>{day.getDate()}</span>
+              </div>
+              {todayFlag && (
+                <Badge className="mb-1.5 text-[8px] py-0 px-1 bg-primary/20 text-primary border border-primary/30 self-start">TODAY</Badge>
+              )}
+
+              {/* 予約カード */}
+              <div className="flex-1 space-y-1 overflow-hidden">
+                {appts.length === 0 ? (
+                  <div className={`flex items-center justify-center h-12 ${pastFlag ? "opacity-20" : "opacity-25"}`}>
+                    <span className="text-[10px] text-muted-foreground">—</span>
+                  </div>
+                ) : (
+                  appts.slice(0, 4).map((a, i) => (
+                    <div
+                      key={a.visit_id}
+                      className={`rounded px-1.5 py-1 leading-tight ${
+                        todayFlag
+                          ? "bg-primary/20 border border-primary/30"
+                          : pastFlag
+                          ? "bg-muted/20 border border-border/40 opacity-50"
+                          : "bg-background/60 border border-border"
+                      }`}
+                      data-testid={`schedule-appt-${a.visit_id}`}
+                    >
+                      <div className="font-mono text-[8px] text-primary/60 mb-0.5">{getSlot(i)}</div>
+                      <div className="text-[10px] font-medium text-foreground truncate">{a.patient_name}</div>
+                      {a.chief_complaint && (
+                        <div className="text-[9px] text-muted-foreground truncate">{a.chief_complaint}</div>
+                      )}
+                    </div>
+                  ))
+                )}
+                {appts.length > 4 && (
+                  <div className="text-[9px] text-muted-foreground text-center">+{appts.length - 4}件</div>
+                )}
+              </div>
+
+              {appts.length > 0 && (
+                <div className="mt-1.5 border-t border-border/40 pt-1 text-center">
+                  <span className="text-[9px] font-mono text-muted-foreground">{appts.length}件</span>
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+
+      {/* 全予約一覧 */}
+      {appointments.length > 0 && (
+        <div className="border border-border rounded-lg overflow-hidden">
+          <div className="bg-card/80 px-3 py-2 border-b border-border flex items-center gap-2">
+            <CalendarDays className="w-3.5 h-3.5 text-primary" />
+            <span className="text-[11px] font-mono text-foreground tracking-wider">予約一覧</span>
+            <Badge variant="outline" className="text-[10px]">{appointments.length}件</Badge>
+          </div>
+          <div className="divide-y divide-border/50">
+            {appointments.map(a => {
+              const past = isPast(a.expected_date);
+              const tod = isToday(a.expected_date);
+              return (
+                <div key={a.visit_id} className={`flex items-center gap-3 px-3 py-2 ${past ? "opacity-50" : ""}`} data-testid={`schedule-list-${a.visit_id}`}>
+                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${tod ? "bg-primary animate-pulse" : past ? "bg-muted-foreground/30" : "bg-chart-3"}`} />
+                  <div className="font-mono text-[10px] text-muted-foreground w-[80px] shrink-0">
+                    {a.expected_date.getMonth()+1}/{a.expected_date.getDate()}（{dayNames[a.expected_date.getDay() === 0 ? 6 : a.expected_date.getDay() - 1]}）
+                  </div>
+                  <div className="text-[12px] font-medium text-foreground">{a.patient_name}</div>
+                  {a.chief_complaint && <div className="text-[11px] text-muted-foreground truncate">{a.chief_complaint}</div>}
+                  {tod && <Badge className="ml-auto text-[8px] bg-primary/20 text-primary border-primary/30 border py-0">本日</Badge>}
+                  {!tod && !past && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="ml-auto h-6 px-2 text-[10px] text-primary hover:bg-primary/10"
+                      onClick={() => window.open(buildGCalUrl(a.follow_up_text, clinicName), "_blank")}
+                      data-testid={`button-gcal-list-${a.visit_id}`}
+                    >
+                      <Calendar className="w-3 h-3 mr-1" />GCal
+                    </Button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {appointments.length === 0 && (
+        <div className="text-center py-12 text-muted-foreground" data-testid="schedule-empty">
+          <CalendarDays className="w-8 h-8 mx-auto mb-3 opacity-20" />
+          <p className="text-[13px]">予約データがありません</p>
+          <p className="text-[11px] mt-1">カルテを作成すると、次回来院予定が自動的にここに表示されます</p>
+        </div>
+      )}
+
+      <p className="text-[9px] text-muted-foreground/40 text-right">※次回来院予定はカルテの「次回来院」テキストから自動計算</p>
     </div>
   );
 }
