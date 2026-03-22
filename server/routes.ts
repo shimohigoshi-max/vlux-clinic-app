@@ -121,7 +121,7 @@ async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; p
   const supabase = getSupabaseAdmin();
 
   const DEMO_CLINIC_NAME = "VLUXデモクリニック";
-  const DEMO_PATIENT_NAME = "田中大輔";
+  const DEMO_PATIENT_KANA = "タナカ ダイスケ";
 
   let clinic_id: string;
   const { data: existingClinics } = await supabase
@@ -135,7 +135,7 @@ async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; p
   } else {
     const { data: newClinic, error } = await supabase
       .from("clinics")
-      .insert({ name: DEMO_CLINIC_NAME, address: "", phone: "" })
+      .insert({ name: DEMO_CLINIC_NAME, address: "", phone: "", plan: "phase1", is_active: true })
       .select("id")
       .single();
     if (error || !newClinic) throw new Error("クリニック作成失敗: " + error?.message);
@@ -147,7 +147,7 @@ async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; p
     .from("patients")
     .select("id")
     .eq("clinic_id", clinic_id)
-    .eq("name", DEMO_PATIENT_NAME)
+    .eq("name_kana", DEMO_PATIENT_KANA)
     .limit(1);
 
   if (existingPatients && existingPatients.length > 0) {
@@ -155,7 +155,14 @@ async function getOrCreateDemoClinicAndPatient(): Promise<{ clinic_id: string; p
   } else {
     const { data: newPatient, error } = await supabase
       .from("patients")
-      .insert({ clinic_id, name: DEMO_PATIENT_NAME, phone: "", grade: "Bronze" })
+      .insert({
+        clinic_id,
+        name_kana: DEMO_PATIENT_KANA,
+        phone: "",
+        member_grade: "bronze",
+        gender: "男性",
+        birth_date: "1983-05-14",
+      })
       .select("id")
       .single();
     if (error || !newPatient) throw new Error("患者作成失敗: " + error?.message);
@@ -267,17 +274,36 @@ priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improve
 
       let visit_id: string | null = null;
       try {
-        const { patient_id } = await getOrCreateDemoClinicAndPatient();
+        const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
         const supabase = getSupabaseAdmin();
+
+        const soapNote = {
+          chief_complaint: validated.data.chief_complaint,
+          findings: validated.data.findings,
+          treatment: validated.data.treatment,
+          advice: validated.data.advice,
+          patient_message: validated.data.patient_message,
+          lifestyle_notes: validated.data.lifestyle_notes,
+          diet_advice: validated.data.diet_advice,
+          supplement_advice: validated.data.supplement_advice,
+          self_care: validated.data.self_care,
+          reason: validated.data.reason,
+        };
+
         const { data: visitData, error: visitError } = await supabase
           .from("visits")
           .insert({
+            clinic_id,
             patient_id,
-            note: conversation,
-            advice: JSON.stringify(validated.data),
+            visited_at: new Date().toISOString(),
+            chief_complaint: validated.data.chief_complaint,
+            soap_note: soapNote,
+            lifestyle_advice: validated.data.life_advice ?? null,
+            recommended_products: validated.data.recommended_products ?? null,
           })
           .select("id")
           .single();
+
         if (!visitError && visitData) {
           visit_id = visitData.id;
         } else {
@@ -348,6 +374,8 @@ scoreは0〜100の整数値で出力してください。`,
     name: z.string().min(1),
     address: z.string().default(""),
     phone: z.string().default(""),
+    plan: z.string().default("phase1"),
+    is_active: z.boolean().default(true),
   });
 
   app.get("/api/clinics", async (_req, res) => {
@@ -388,9 +416,11 @@ scoreは0〜100の整数値で出力してください。`,
   // ─── Patients ──────────────────────────────────────────────────────
   const patientInsertSchema = z.object({
     clinic_id: z.string().uuid(),
-    name: z.string().min(1),
+    name_kana: z.string().min(1),
     phone: z.string().default(""),
-    grade: z.string().default("Bronze"),
+    gender: z.string().optional(),
+    birth_date: z.string().optional(),
+    member_grade: z.string().default("bronze"),
   });
 
   app.get("/api/patients", async (req, res) => {
@@ -445,15 +475,20 @@ scoreは0〜100の整数値で出力してください。`,
   const visitInsertSchema = z.object({
     patient_id: z.string().uuid(),
     clinic_id: z.string().uuid().optional(),
-    note: z.string().default(""),
-    advice: z.string().default(""),
+    visited_at: z.string().datetime().optional(),
+    chief_complaint: z.string().optional().default(""),
+    soap_note: z.record(z.unknown()).optional(),
+    audio_url: z.string().optional(),
+    lifestyle_advice: z.unknown().optional(),
+    recommended_products: z.unknown().optional(),
   });
 
   app.get("/api/visits", async (req, res) => {
     try {
       const supabase = getSupabaseAdmin();
-      let query = supabase.from("visits").select("*");
+      let query = supabase.from("visits").select("*").order("visited_at", { ascending: false });
       if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
+      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
       const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -467,9 +502,7 @@ scoreは0〜100の整数値で出力してください。`,
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
       const supabase = getSupabaseAdmin();
-      const { clinic_id, ...rest } = parsed.data;
-      const insertData = clinic_id ? { ...rest, clinic_id } : rest;
-      const { data, error } = await supabase.from("visits").insert(insertData).select().single();
+      const { data, error } = await supabase.from("visits").insert(parsed.data).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
@@ -491,16 +524,18 @@ scoreは0〜100の整数値で出力してください。`,
   // ─── Health Data ───────────────────────────────────────────────────
   const healthDataInsertSchema = z.object({
     patient_id: z.string().uuid(),
+    recorded_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     steps: z.number().int().min(0).default(0),
-    sleep_hours: z.number().min(0).default(0),
-    heart_rate: z.number().int().min(0).default(0),
-    recorded_at: z.string().datetime().optional(),
+    heart_rate_avg: z.number().min(0).optional(),
+    sleep_minutes: z.number().int().min(0).optional(),
+    active_calories: z.number().min(0).optional(),
+    source: z.string().default("healthkit"),
   });
 
   app.get("/api/health-data", async (req, res) => {
     try {
       const supabase = getSupabaseAdmin();
-      let query = supabase.from("health_data").select("*").order("recorded_at", { ascending: false });
+      let query = supabase.from("health_data").select("*").order("recorded_date", { ascending: false });
       if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
       const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
