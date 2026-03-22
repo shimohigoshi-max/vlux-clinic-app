@@ -15,7 +15,9 @@ import {
   ChevronRight, MapPin, GlassWater, CircleDot,
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
+  MessageSquare, Smartphone, CheckCircle2, XCircle,
 } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
   Product, TreatmentRecord, KarteHistoryEntry,
@@ -119,12 +121,24 @@ export function IPadView(props: IPadViewProps) {
   const [patientSearch, setPatientSearch] = useState("");
 
   // ── New patient modal ────────────────────────────────────────────
+  const { toast } = useToast();
   const [showNewPatient, setShowNewPatient] = useState(false);
   const [newPatientForm, setNewPatientForm] = useState({
     name_kana: "", birth_date: "", gender: "", phone: "",
   });
   const [isSavingPatient, setIsSavingPatient] = useState(false);
   const [newPatientError, setNewPatientError] = useState<string | null>(null);
+  const [registeredPatient, setRegisteredPatient] = useState<{ id: string; name_kana: string } | null>(null);
+  const [smsStatus, setSmsStatus] = useState<"sending" | "sent" | "failed" | null>(null);
+  const [showOnboarding, setShowOnboarding] = useState(false);
+
+  const closeNewPatientModal = () => {
+    setShowNewPatient(false);
+    setRegisteredPatient(null);
+    setSmsStatus(null);
+    setNewPatientError(null);
+    setNewPatientForm({ name_kana: "", birth_date: "", gender: "", phone: "" });
+  };
 
   const saveNewPatient = async () => {
     if (!newPatientForm.name_kana.trim() || !clinicId) return;
@@ -139,10 +153,28 @@ export function IPadView(props: IPadViewProps) {
       if (newPatientForm.birth_date) body.birth_date = newPatientForm.birth_date;
       if (newPatientForm.gender) body.gender = newPatientForm.gender;
       if (newPatientForm.phone) body.phone = newPatientForm.phone;
-      await apiRequest("POST", "/api/patients", body);
+      const saved = await apiRequest("POST", "/api/patients", body);
+      const patient = await saved.json();
       queryClient.invalidateQueries({ queryKey: ["admin-patients", clinicId] });
-      setShowNewPatient(false);
-      setNewPatientForm({ name_kana: "", birth_date: "", gender: "", phone: "" });
+      setRegisteredPatient({ id: patient.id, name_kana: patient.name_kana });
+
+      if (newPatientForm.phone) {
+        setSmsStatus("sending");
+        try {
+          await apiRequest("POST", "/api/patients/invite", {
+            patient_id: patient.id,
+            phone: newPatientForm.phone,
+            clinic_name: clinicInfo?.name ?? "堺整骨院",
+          });
+          setSmsStatus("sent");
+          toast({ title: "登録完了", description: "SMSを送信しました" });
+        } catch {
+          setSmsStatus("failed");
+          toast({ title: "登録完了", description: "登録は完了しましたがSMS送信に失敗しました", variant: "destructive" });
+        }
+      } else {
+        toast({ title: "登録完了", description: `${patient.name_kana} を登録しました` });
+      }
     } catch {
       setNewPatientError("保存に失敗しました。再度お試しください。");
     }
@@ -907,53 +939,134 @@ export function IPadView(props: IPadViewProps) {
       {/* ── 新規患者登録モーダル ── */}
       {showNewPatient && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="modal-new-patient">
-          <div className="absolute inset-0 bg-black/70" onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} />
+          <div className="absolute inset-0 bg-black/70" onClick={!registeredPatient ? closeNewPatientModal : undefined} />
           <div className="relative z-10 w-full max-w-[420px] mx-4 bg-card border border-border rounded-xl shadow-2xl p-6">
             <div className="flex items-center justify-between mb-5">
               <h2 className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
-                <UserPlus className="w-4 h-4 text-primary" /> 新規患者登録
+                {registeredPatient
+                  ? <><CheckCircle2 className="w-4 h-4 text-emerald-400" /> 登録完了</>
+                  : <><UserPlus className="w-4 h-4 text-primary" /> 新規患者登録</>
+                }
               </h2>
-              <button onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} className="text-muted-foreground hover:text-foreground" data-testid="button-close-new-patient">
+              <button onClick={closeNewPatientModal} className="text-muted-foreground hover:text-foreground" data-testid="button-close-new-patient">
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="space-y-4">
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">氏名（カナ）<span className="text-red-400 ml-1">*</span></Label>
-                <Input value={newPatientForm.name_kana} onChange={e => setNewPatientForm(f => ({ ...f, name_kana: e.target.value }))} placeholder="例：ヤマダ タロウ" className="text-[13px]" data-testid="input-new-patient-name" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">生年月日</Label>
-                <Input type="date" value={newPatientForm.birth_date} onChange={e => setNewPatientForm(f => ({ ...f, birth_date: e.target.value }))} className="text-[13px]" data-testid="input-new-patient-birth" />
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">性別</Label>
-                <Select value={newPatientForm.gender} onValueChange={v => setNewPatientForm(f => ({ ...f, gender: v }))}>
-                  <SelectTrigger className="text-[13px]" data-testid="select-new-patient-gender"><SelectValue placeholder="選択してください" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="男性">男性</SelectItem>
-                    <SelectItem value="女性">女性</SelectItem>
-                    <SelectItem value="その他">その他</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
-                <Input type="tel" value={newPatientForm.phone} onChange={e => setNewPatientForm(f => ({ ...f, phone: e.target.value }))} placeholder="例：090-1234-5678" className="text-[13px]" data-testid="input-new-patient-phone" />
-              </div>
-              {newPatientError && (
-                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2" data-testid="new-patient-error">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                  <p className="text-[12px] text-red-300">{newPatientError}</p>
+
+            {registeredPatient ? (
+              /* ── 登録完了後の画面 ── */
+              <div className="space-y-5" data-testid="section-register-success">
+                <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-4 py-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                  <p className="text-[13px] text-emerald-300 font-medium">{registeredPatient.name_kana} 様を登録しました</p>
                 </div>
-              )}
+
+                {/* SMS ステータス */}
+                {smsStatus && (
+                  <div className={`flex items-center gap-3 rounded-lg px-4 py-3 border ${
+                    smsStatus === "sending" ? "bg-blue-500/10 border-blue-500/20" :
+                    smsStatus === "sent"    ? "bg-primary/10 border-primary/20" :
+                                             "bg-red-500/10 border-red-500/20"
+                  }`} data-testid="sms-status">
+                    {smsStatus === "sending" && <><Loader2 className="w-4 h-4 text-blue-400 shrink-0 animate-spin" /><p className="text-[12px] text-blue-300">SMS送信中...</p></>}
+                    {smsStatus === "sent"    && <><MessageSquare className="w-4 h-4 text-primary shrink-0" /><p className="text-[12px] text-primary">アプリ招待SMSを送信しました</p></>}
+                    {smsStatus === "failed"  && <><XCircle className="w-4 h-4 text-red-400 shrink-0" /><p className="text-[12px] text-red-300">SMS送信に失敗しました（登録は完了済み）</p></>}
+                  </div>
+                )}
+
+                {/* アクションボタン */}
+                <div className="flex flex-col gap-2">
+                  <Button
+                    className="w-full gap-2"
+                    onClick={() => setShowOnboarding(true)}
+                    data-testid="button-show-onboarding"
+                  >
+                    <Smartphone className="w-4 h-4" /> 初診説明を表示
+                  </Button>
+                  <Button variant="ghost" size="sm" className="w-full" onClick={closeNewPatientModal} data-testid="button-done-new-patient">
+                    閉じる
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              /* ── 登録フォーム ── */
+              <>
+                <div className="space-y-4">
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">氏名（カナ）<span className="text-red-400 ml-1">*</span></Label>
+                    <Input value={newPatientForm.name_kana} onChange={e => setNewPatientForm(f => ({ ...f, name_kana: e.target.value }))} placeholder="例：ヤマダ タロウ" className="text-[13px]" data-testid="input-new-patient-name" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">生年月日</Label>
+                    <Input type="date" value={newPatientForm.birth_date} onChange={e => setNewPatientForm(f => ({ ...f, birth_date: e.target.value }))} className="text-[13px]" data-testid="input-new-patient-birth" />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">性別</Label>
+                    <Select value={newPatientForm.gender} onValueChange={v => setNewPatientForm(f => ({ ...f, gender: v }))}>
+                      <SelectTrigger className="text-[13px]" data-testid="select-new-patient-gender"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="男性">男性</SelectItem>
+                        <SelectItem value="女性">女性</SelectItem>
+                        <SelectItem value="その他">その他</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
+                    <Input type="tel" value={newPatientForm.phone} onChange={e => setNewPatientForm(f => ({ ...f, phone: e.target.value }))} placeholder="例：090-1234-5678" className="text-[13px]" data-testid="input-new-patient-phone" />
+                  </div>
+                  {newPatientError && (
+                    <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2" data-testid="new-patient-error">
+                      <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                      <p className="text-[12px] text-red-300">{newPatientError}</p>
+                    </div>
+                  )}
+                </div>
+                <div className="flex justify-end gap-2 mt-6">
+                  <Button variant="ghost" size="sm" onClick={closeNewPatientModal} data-testid="button-cancel-new-patient">キャンセル</Button>
+                  <Button onClick={saveNewPatient} disabled={isSavingPatient || !newPatientForm.name_kana.trim()} data-testid="button-save-new-patient">
+                    {isSavingPatient ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</> : <><Save className="w-4 h-4" /> 保存</>}
+                  </Button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ── 初診説明フルスクリーン ── */}
+      {showOnboarding && (
+        <div className="fixed inset-0 z-[200] bg-[#0a0f1e] flex flex-col items-center justify-center p-8" data-testid="screen-onboarding">
+          <div className="w-full max-w-[560px]">
+            <p className="font-mono text-[10px] tracking-[4px] text-primary/60 text-center mb-2">VLUX PATIENT GUIDE</p>
+            <h1 className="text-[24px] font-bold text-foreground text-center mb-10">VLUXアプリのはじめかた</h1>
+            <div className="grid grid-cols-2 gap-4">
+              {[
+                { step: 1, title: "今SMSが届きます", desc: "URLをタップして開いてください", icon: MessageSquare },
+                { step: 2, title: "「共有」ボタンをタップ", desc: "画面下の四角から矢印が出ているアイコンです", icon: Send },
+                { step: 3, title: "「ホーム画面に追加」を選択", desc: "アプリとして使えるようになります", icon: Smartphone },
+                { step: 4, title: "施術記録が届きます", desc: "来院のたびに記録・毎日の健康データも自動記録", icon: Heart },
+              ].map(({ step, title, desc, icon: Icon }) => (
+                <div key={step} className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3">
+                  <div className="flex items-center gap-2">
+                    <span className="font-mono text-[11px] text-primary/60 tracking-[2px]">STEP {step}</span>
+                  </div>
+                  <Icon className="w-7 h-7 text-primary" />
+                  <div>
+                    <p className="text-[15px] font-bold text-foreground mb-1">{title}</p>
+                    <p className="text-[12px] text-muted-foreground leading-relaxed">{desc}</p>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <Button variant="ghost" size="sm" onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} data-testid="button-cancel-new-patient">キャンセル</Button>
-              <Button onClick={saveNewPatient} disabled={isSavingPatient || !newPatientForm.name_kana.trim()} data-testid="button-save-new-patient">
-                {isSavingPatient ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</> : <><Save className="w-4 h-4" /> 保存</>}
-              </Button>
-            </div>
+            <Button
+              variant="ghost"
+              className="mt-10 w-full gap-2 text-muted-foreground"
+              onClick={() => setShowOnboarding(false)}
+              data-testid="button-close-onboarding"
+            >
+              <X className="w-4 h-4" /> 閉じる
+            </Button>
           </div>
         </div>
       )}

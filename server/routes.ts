@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSupabaseAdmin } from "./supabase";
+import twilio from "twilio";
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -452,6 +453,41 @@ scoreは0〜100の整数値で出力してください。`,
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
     } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
+  // ─── SMS Invite ────────────────────────────────────────────────────
+  const inviteSchema = z.object({
+    patient_id: z.string().uuid(),
+    phone: z.string().min(1),
+    clinic_name: z.string().default("堺整骨院"),
+  });
+
+  app.post("/api/patients/invite", async (req, res) => {
+    const parsed = inviteSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const { phone, clinic_name, patient_id } = parsed.data;
+    const pwaUrl = process.env.VITE_PWA_URL || process.env.PWA_URL || "https://vlux.health";
+    const messageBody = `【${clinic_name}】\n本日はご来院ありがとうございました。\nVLUXアプリでいつでも施術記録・生活アドバイスをご確認いただけます。\n\n▼ アプリを開く\n${pwaUrl}\n\n初回は右下の「ホーム画面に追加」でインストールしてください。\nご不明な点はスタッフまでお声がけください。`;
+
+    const sid = process.env.TWILIO_ACCOUNT_SID;
+    const token = process.env.TWILIO_AUTH_TOKEN;
+    const from = process.env.TWILIO_PHONE_NUMBER;
+
+    if (!sid || !token || !from) {
+      console.log(`[VLUX SMS] Twilio not configured. Would send to ${phone}:\n${messageBody}`);
+      return res.json({ success: true, method: "console", patient_id });
+    }
+
+    try {
+      const client = twilio(sid, token);
+      const msg = await client.messages.create({ body: messageBody, from, to: phone });
+      console.log(`[VLUX SMS] Sent to ${phone}, SID: ${msg.sid}`);
+      res.json({ success: true, method: "twilio", sid: msg.sid, patient_id });
+    } catch (e) {
+      console.error(`[VLUX SMS] Failed to send to ${phone}:`, e);
       res.status(500).json({ error: String(e) });
     }
   });

@@ -35,6 +35,7 @@ A healthcare demo application (branded VLUX) showing how AI can bridge the gap b
 - `GET/POST/DELETE /api/clinics` — クリニック一覧・登録・削除
 - `GET /api/admin/clinic` — 管理画面用クリニック情報 (TEST_CLINIC_ID or demo clinic)
 - `GET/POST/PATCH/DELETE /api/patients` — 患者一覧（?clinic_id=...でフィルタ）・登録・更新・削除
+- `POST /api/patients/invite` — 新規患者へTwilio SMS招待送信。Body: `{patient_id, phone, clinic_name}`. TWILIO_* env vars未設定時はconsole.logにフォールバック
 - `GET/POST/PATCH/DELETE /api/visits` — 来院記録（?clinic_id=...でフィルタ）。PATCHでchief_complaint/soap_note/lifestyle_advice/risk_flags/follow_up編集可
 - `GET/POST/DELETE /api/health-data` — 健康データ
 
