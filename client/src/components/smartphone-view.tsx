@@ -21,6 +21,33 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
+function parseFollowUpDays(text: string): number {
+  const s = text.replace(/\s/g, "");
+  const week = s.match(/(\d+)[週週](?:間)?後?/);
+  if (week) return parseInt(week[1]) * 7;
+  const month = s.match(/(\d+)[ヶかカ]?月後?/);
+  if (month) return parseInt(month[1]) * 30;
+  const day = s.match(/(\d+)日/);
+  if (day) return parseInt(day[1]);
+  return 7;
+}
+
+function buildGCalUrl(followUpText: string, clinicName = "整骨院"): string {
+  const days = parseFollowUpDays(followUpText);
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const end = new Date(date);
+  end.setDate(end.getDate() + 1);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `${clinicName} 施術予約`,
+    dates: `${fmt(date)}/${fmt(end)}`,
+    details: `${clinicName}での施術予約\n次回来院目安：${followUpText}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 interface SmartphoneViewProps {
   patientSent: boolean;
   karte: KarteResult | null;
@@ -414,9 +441,20 @@ export function SmartphoneView({
                     )}
 
                     {karte.follow_up && (
-                      <div className="bg-card border border-border rounded-md px-3 py-2 flex items-center gap-2" data-testid="card-follow-up">
-                        <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
-                        <p className="text-[11px] text-muted-foreground">{karte.follow_up}</p>
+                      <div className="bg-card border border-border rounded-md px-3 py-2 flex items-center justify-between gap-2" data-testid="card-follow-up">
+                        <div className="flex items-center gap-2">
+                          <Calendar className="w-3.5 h-3.5 text-primary shrink-0" />
+                          <p className="text-[11px] text-muted-foreground">{karte.follow_up}</p>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[10px] text-primary border border-primary/30 hover:bg-primary/10"
+                          onClick={() => window.open(buildGCalUrl(karte.follow_up!, "整骨院"), "_blank")}
+                          data-testid="button-gcal-from-followup"
+                        >
+                          <Calendar className="w-3 h-3 mr-1" />Googleカレンダー
+                        </Button>
                       </div>
                     )}
 
@@ -425,10 +463,10 @@ export function SmartphoneView({
                     <Button
                       className="w-full"
                       size="lg"
-                      onClick={() => alert("デモ：予約システム連携\n実装時はカレンダーUIを表示")}
+                      onClick={() => window.open(buildGCalUrl(karte?.follow_up ?? "1週間後", "整骨院"), "_blank")}
                       data-testid="button-book-appointment"
                     >
-                      <Calendar className="w-4 h-4" /> 次回の予約を取る
+                      <Calendar className="w-4 h-4" /> Googleカレンダーに予約を追加
                     </Button>
                   </>
                 ) : (
@@ -438,10 +476,10 @@ export function SmartphoneView({
                     <Button
                       className="w-full"
                       size="lg"
-                      onClick={() => alert("デモ：予約システム連携")}
+                      onClick={() => window.open(buildGCalUrl("1週間後", "整骨院"), "_blank")}
                       data-testid="button-book-appointment-initial"
                     >
-                      <Calendar className="w-4 h-4" /> 次回の予約を取る
+                      <Calendar className="w-4 h-4" /> Googleカレンダーに予約を追加
                     </Button>
 
                     <div className="text-center py-4">

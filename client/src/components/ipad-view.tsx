@@ -36,6 +36,33 @@ const toKatakana = (str: string) =>
 
 const normalizeJa = (str: string) => toKatakana(str.trim().toLowerCase());
 
+function parseFollowUpDays(text: string): number {
+  const s = text.replace(/\s/g, "");
+  const week = s.match(/(\d+)[週週](?:間)?後?/);
+  if (week) return parseInt(week[1]) * 7;
+  const month = s.match(/(\d+)[ヶかカ]?月後?/);
+  if (month) return parseInt(month[1]) * 30;
+  const day = s.match(/(\d+)日/);
+  if (day) return parseInt(day[1]);
+  return 7;
+}
+
+function buildGCalUrl(followUpText: string, clinicName = "整骨院"): string {
+  const days = parseFollowUpDays(followUpText);
+  const date = new Date();
+  date.setDate(date.getDate() + days);
+  const fmt = (d: Date) => d.toISOString().slice(0, 10).replace(/-/g, "");
+  const end = new Date(date);
+  end.setDate(end.getDate() + 1);
+  const params = new URLSearchParams({
+    action: "TEMPLATE",
+    text: `${clinicName} 施術予約`,
+    dates: `${fmt(date)}/${fmt(end)}`,
+    details: `${clinicName}での施術予約\n次回来院目安：${followUpText}`,
+  });
+  return `https://calendar.google.com/calendar/render?${params.toString()}`;
+}
+
 interface ClinicInfo { id: string; name: string; }
 interface AdminPatient {
   id: string;
@@ -573,12 +600,25 @@ export function IPadView(props: IPadViewProps) {
                   </div>
                   <div>
                     <p className="text-[9px] font-mono text-primary/70 tracking-[2px] mb-1">次回来院</p>
-                    <Input
-                      value={editedKarte.follow_up ?? ""}
-                      onChange={e => setEditedKarte(prev => ({ ...prev!, follow_up: e.target.value }))}
-                      className="text-[12px] bg-card"
-                      data-testid="edit-follow-up"
-                    />
+                    <div className="flex gap-2">
+                      <Input
+                        value={editedKarte.follow_up ?? ""}
+                        onChange={e => setEditedKarte(prev => ({ ...prev!, follow_up: e.target.value }))}
+                        className="text-[12px] bg-card flex-1"
+                        data-testid="edit-follow-up"
+                      />
+                      {editedKarte.follow_up && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="shrink-0 border-primary/30 text-primary hover:bg-primary/10 text-[11px] px-2 h-9"
+                          onClick={() => window.open(buildGCalUrl(editedKarte.follow_up!, clinicInfo?.name ?? "整骨院"), "_blank")}
+                          data-testid="button-gcal-ipad"
+                        >
+                          <Calendar className="w-3.5 h-3.5 mr-1" />GCal登録
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 </div>
                 <div className="space-y-3">
