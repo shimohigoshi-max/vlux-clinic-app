@@ -25,7 +25,11 @@ const summarizeInputSchema = z.object({
 });
 
 const analyzeInputSchema = z.object({
-  conversation: z.string().min(1).max(15000),
+  transcription: z.string().min(1).max(15000),
+  patient_id: z.string().uuid().optional(),
+  clinic_id: z.string().uuid().optional(),
+  // legacy fields kept for backward compat with existing frontend
+  conversation: z.string().optional(),
   healthData: z.string().optional().default(""),
   previousHistory: z.string().optional().default(""),
   products: z.array(z.object({
@@ -51,32 +55,12 @@ const summaryResponseSchema = z.object({
 
 const karteResponseSchema = z.object({
   chief_complaint: z.string().optional().default(""),
-  findings: z.string().optional().default(""),
-  treatment: z.string().optional().default(""),
-  advice: z.array(z.string()).optional().default([]),
-  patient_message: z.string().optional().default(""),
-  lifestyle_notes: z.array(z.string()).optional().default([]),
-  diet_advice: z.array(z.string()).optional().default([]),
-  supplement_advice: z.array(z.object({
-    name: z.string(),
-    timing: z.string(),
-    reason: z.string(),
-  })).optional().default([]),
-  self_care: z.array(z.string()).optional().default([]),
+  assessment: z.string().optional().default(""),
+  treatment_plan: z.string().optional().default(""),
+  lifestyle_advice: z.array(z.string()).optional().default([]),
   recommended_products: z.array(z.string()).optional().default([]),
-  reason: z.string().optional().default(""),
-  life_advice: z.object({
-    this_month_theme: z.string(),
-    improved_from_last: z.string().optional(),
-    focus_areas: z.array(z.object({
-      icon: z.string(),
-      category: z.string(),
-      priority: z.enum(["高", "中", "低"]),
-      advice: z.string(),
-    })).min(1).max(7).optional().default([]),
-    one_thing_today: z.string().optional(),
-    next_visit_goal: z.string().optional(),
-  }).optional(),
+  follow_up: z.string().optional().default(""),
+  risk_flags: z.array(z.string()).optional().default([]),
 });
 
 const correlationResponseSchema = z.object({
@@ -219,76 +203,76 @@ key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に
 
       const parsed = analyzeInputSchema.safeParse(req.body);
       if (!parsed.success) {
-        return res.status(400).json({ error: "入力データが不正です。" });
+        console.error("Analyze input validation error:", parsed.error.flatten());
+        return res.status(400).json({ error: "入力データが不正です。", details: parsed.error.flatten() });
       }
 
-      const { conversation, healthData, previousHistory, products } = parsed.data;
+      const transcription = parsed.data.transcription;
+      const reqPatientId = parsed.data.patient_id;
+      const reqClinicId = parsed.data.clinic_id;
 
-      const message = await anthropic.messages.create({
-        model: "claude-sonnet-4-6",
-        max_tokens: 8192,
-        system: `整骨院AIカルテ。JSONのみ出力（\`\`\`不要）:
+      let message;
+      try {
+        message = await anthropic.messages.create({
+          model: "claude-sonnet-4-6",
+          max_tokens: 1000,
+          system: "あなたは整骨院の熟練カルテ作成AIです。施術会話から構造化カルテを生成します。患者の個人名・住所・生年月日などの個人情報はJSONに含めないでください。",
+          messages: [{
+            role: "user",
+            content: `以下の施術会話から構造化カルテを生成してください。
+会話テキスト：${transcription}
+
+以下のJSON形式のみで返答してください。説明文・前置き・コードブロックは不要です。
+
 {
-  "chief_complaint": "",
-  "findings": "",
-  "treatment": "",
-  "advice": [],
-  "patient_message": "患者への親しみやすいメッセージ150字以内",
-  "lifestyle_notes": ["生活習慣の注意点"],
-  "diet_advice": ["食事アドバイス"],
-  "supplement_advice": [{"name": "サプリ名", "timing": "摂取タイミング", "reason": "理由"}],
-  "self_care": ["セルフケア指導"],
-  "recommended_products": ["W001"],
-  "reason": "推薦理由",
-  "life_advice": {
-    "this_month_theme": "今月のテーマ（10文字以内）",
-    "improved_from_last": "前回から改善された点（1文）",
-    "focus_areas": [
-      {"category": "睡眠", "icon": "😴", "advice": "具体的なアドバイス1文", "priority": "高"},
-      {"category": "運動", "icon": "🏃", "advice": "具体的なアドバイス1文", "priority": "高"},
-      {"category": "食事・水分", "icon": "🥗", "advice": "具体的なアドバイス1文", "priority": "中"},
-      {"category": "仕事環境", "icon": "💼", "advice": "具体的なアドバイス1文", "priority": "中"},
-      {"category": "メンタル", "icon": "🧘", "advice": "具体的なアドバイス1文", "priority": "低"}
-    ],
-    "one_thing_today": "今日からできる一つのこと（具体的・短く）",
-    "next_visit_goal": "次回来院までの目標（1文）"
-  }
-}
-priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improved_from_lastは過去データがあれば記載。`,
-        messages: [{
-          role: "user",
-          content: `会話:\n${conversation}\n生活データ: ${healthData}\n過去3回の施術: ${previousHistory}\n商品: ${JSON.stringify(products)}`
-        }],
-      });
+  "chief_complaint": "主訴を1文で",
+  "assessment": "施術者の見立てを1〜2文で",
+  "treatment_plan": "本日の施術方針を1〜2文で",
+  "lifestyle_advice": [
+    "生活アドバイス1",
+    "生活アドバイス2",
+    "生活アドバイス3"
+  ],
+  "recommended_products": [
+    "推薦商品（なければ空配列）"
+  ],
+  "follow_up": "次回来院の推奨時期",
+  "risk_flags": [
+    "注意すべき点（なければ空配列）"
+  ]
+}`
+          }],
+        });
+      } catch (aiErr) {
+        console.error("Claude API error:", aiErr);
+        return res.status(500).json({ error: "AI（Claude）の呼び出しに失敗しました。" });
+      }
 
       const text = message.content[0]?.type === "text" ? message.content[0].text : "";
       const raw = safeJsonParse(text);
       if (!raw) {
+        console.error("AI response parse failed. Raw text:", text);
         return res.status(500).json({ error: "AI応答の解析に失敗しました。再度お試しください。" });
       }
 
       const validated = karteResponseSchema.safeParse(raw);
       if (!validated.success) {
+        console.error("AI response schema mismatch:", validated.error.flatten(), "Raw:", raw);
         return res.status(500).json({ error: "AI応答のフォーマットが不正です。再度お試しください。" });
       }
 
       let visit_id: string | null = null;
       try {
-        const { clinic_id, patient_id } = await getOrCreateDemoClinicAndPatient();
         const supabase = getSupabaseAdmin();
 
-        const soapNote = {
-          chief_complaint: validated.data.chief_complaint,
-          findings: validated.data.findings,
-          treatment: validated.data.treatment,
-          advice: validated.data.advice,
-          patient_message: validated.data.patient_message,
-          lifestyle_notes: validated.data.lifestyle_notes,
-          diet_advice: validated.data.diet_advice,
-          supplement_advice: validated.data.supplement_advice,
-          self_care: validated.data.self_care,
-          reason: validated.data.reason,
-        };
+        let clinic_id = reqClinicId;
+        let patient_id = reqPatientId;
+
+        if (!clinic_id || !patient_id) {
+          const demo = await getOrCreateDemoClinicAndPatient();
+          clinic_id = clinic_id ?? demo.clinic_id;
+          patient_id = patient_id ?? demo.patient_id;
+        }
 
         const { data: visitData, error: visitError } = await supabase
           .from("visits")
@@ -297,15 +281,16 @@ priorityは高/中/低のいずれか。focus_areasは必ず5つ出力。improve
             patient_id,
             visited_at: new Date().toISOString(),
             chief_complaint: validated.data.chief_complaint,
-            soap_note: soapNote,
-            lifestyle_advice: validated.data.life_advice ?? null,
-            recommended_products: validated.data.recommended_products ?? null,
+            soap_note: validated.data,
+            lifestyle_advice: validated.data.lifestyle_advice,
+            recommended_products: validated.data.recommended_products,
           })
           .select("id")
           .single();
 
         if (!visitError && visitData) {
           visit_id = visitData.id;
+          console.log("Visit saved to Supabase:", visit_id);
         } else {
           console.error("Visit save error:", visitError?.message);
         }
