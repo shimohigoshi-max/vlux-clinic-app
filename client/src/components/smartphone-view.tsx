@@ -8,6 +8,7 @@ import {
   ChevronRight, Clock, Plus, GlassWater, Heart, Zap,
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
   Crown, Award, Leaf, TrendingUp, Target, MapPin, AlertCircle,
+  RefreshCw, Wifi, WifiOff, Flame, X,
 } from "lucide-react";
 import type { KarteResult, Product, LifeAdvice, SupabaseVisit, SupabaseHealthData, PatientProfile, Coupon } from "@/lib/constants";
 import {
@@ -50,6 +51,10 @@ export function SmartphoneView({
   const [activeClinic, setActiveClinic] = useState("tanaka");
   const [issuedCoupon, setIssuedCoupon] = useState<Coupon | null>(null);
   const [couponIssuing, setCouponIssuing] = useState(false);
+  const [connectedSource, setConnectedSource] = useState<"healthkit" | "googlefit" | "mock" | null>(null);
+  const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
   const { data: profile } = useQuery<PatientProfile>({
     queryKey: ["/api/patient/profile"],
@@ -90,6 +95,157 @@ export function SmartphoneView({
     window.addEventListener("appinstalled", handler);
     return () => window.removeEventListener("appinstalled", handler);
   }, [profile?.id, profile?.clinic_id]);
+
+  // ── HealthKit / Google Fit / Mock sync ───────────────────────────
+  const buildMockRecords = () => {
+    const steps    = [8432, 6201, 11043, 4892, 7654, 9321, 5678];
+    const hr       = [72,   68,   75,    70,   73,   71,   69];
+    const sleep    = [390,  420,  360,   450,  400,  385,  435];
+    const calories = [320,  280,  445,   210,  305,  380,  245];
+    const today = new Date();
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(today);
+      d.setDate(d.getDate() - (6 - i));
+      return {
+        date: d.toISOString().split("T")[0],
+        steps: steps[i],
+        heart_rate_avg: hr[i],
+        sleep_minutes: sleep[i],
+        active_calories: calories[i],
+      };
+    });
+  };
+
+  const doSync = async (source: "healthkit" | "googlefit" | "mock", records: ReturnType<typeof buildMockRecords>) => {
+    setIsSyncing(true);
+    setSyncMessage(null);
+    try {
+      await apiRequest("POST", "/api/health-data/sync", { source, records });
+      setConnectedSource(source);
+      setLastSyncTime(new Date());
+      setSyncMessage("同期完了");
+      queryClient.invalidateQueries({ queryKey: ["/api/patient/health-data"] });
+      onSyncHealth();
+    } catch {
+      setSyncMessage("同期に失敗しました");
+    } finally {
+      setIsSyncing(false);
+      setTimeout(() => setSyncMessage(null), 3000);
+    }
+  };
+
+  const connectHealthKit = async () => {
+    const nav = navigator as Navigator & { health?: { requestAuthorization: (types: string[]) => Promise<void>; query: (opts: Record<string, unknown>) => Promise<{ dataPoints?: { value?: number }[] }> } };
+    if (nav.health) {
+      try {
+        await nav.health.requestAuthorization(["steps", "heartRate", "sleepAnalysis", "activeEnergyBurned"]);
+        // 認証成功後: 過去7日分を取得して送信
+        const today = new Date();
+        const records = await Promise.all(Array.from({ length: 7 }, async (_, i) => {
+          const d = new Date(today);
+          d.setDate(d.getDate() - (6 - i));
+          const dateStr = d.toISOString().split("T")[0];
+          const startDate = new Date(d); startDate.setHours(0, 0, 0, 0);
+          const endDate = new Date(d); endDate.setHours(23, 59, 59, 999);
+          const [stepsData, hrData, sleepData, calData] = await Promise.allSettled([
+            nav.health!.query({ startDate, endDate, type: "steps" }),
+            nav.health!.query({ startDate, endDate, type: "heartRate" }),
+            nav.health!.query({ startDate, endDate, type: "sleepAnalysis" }),
+            nav.health!.query({ startDate, endDate, type: "activeEnergyBurned" }),
+          ]);
+          const sum = (res: PromiseSettledResult<{ dataPoints?: { value?: number }[] }>) =>
+            res.status === "fulfilled" ? (res.value.dataPoints ?? []).reduce((a, p) => a + (p.value ?? 0), 0) : 0;
+          return { date: dateStr, steps: Math.round(sum(stepsData)), heart_rate_avg: Math.round(sum(hrData) / 7), sleep_minutes: Math.round(sum(sleepData) / 60), active_calories: Math.round(sum(calData)) };
+        }));
+        await doSync("healthkit", records);
+      } catch (e) {
+        setSyncMessage("HealthKit認証に失敗しました");
+        setTimeout(() => setSyncMessage(null), 3000);
+      }
+    } else {
+      // 非対応端末 → モックで動作確認
+      await doSync("mock", buildMockRecords());
+      setSyncMessage("モックデータで同期しました（HealthKit非対応環境）");
+      setTimeout(() => setSyncMessage(null), 4000);
+    }
+  };
+
+  const connectGoogleFit = () => {
+    const clientId = import.meta.env.VITE_GOOGLE_FIT_CLIENT_ID;
+    if (!clientId) {
+      // 未設定 → モックデータで動作確認
+      doSync("mock", buildMockRecords());
+      setSyncMessage("Google Fit Client IDが未設定のためモックデータで同期しました");
+      setTimeout(() => setSyncMessage(null), 4000);
+      return;
+    }
+    const redirectUri = encodeURIComponent(window.location.origin + "/oauth/callback");
+    const scopes = encodeURIComponent([
+      "https://www.googleapis.com/auth/fitness.activity.read",
+      "https://www.googleapis.com/auth/fitness.heart_rate.read",
+      "https://www.googleapis.com/auth/fitness.sleep.read",
+    ].join(" "));
+    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
+    const popup = window.open(authUrl, "google_fit", "width=600,height=700");
+    const listener = (e: MessageEvent) => {
+      if (e.origin !== window.location.origin) return;
+      if (e.data?.type === "google_fit_token" && e.data?.token) {
+        window.removeEventListener("message", listener);
+        popup?.close();
+        doGoogleFitFetch(e.data.token);
+      }
+    };
+    window.addEventListener("message", listener);
+  };
+
+  const doGoogleFitFetch = async (accessToken: string) => {
+    setIsSyncing(true);
+    try {
+      const now = Date.now();
+      const weekMs = 7 * 24 * 60 * 60 * 1000;
+      const body = {
+        aggregateBy: [
+          { dataTypeName: "com.google.step_count.delta" },
+          { dataTypeName: "com.google.heart_rate.bpm" },
+          { dataTypeName: "com.google.sleep.segment" },
+          { dataTypeName: "com.google.calories.expended" },
+        ],
+        bucketByTime: { durationMillis: 86400000 },
+        startTimeMillis: now - weekMs,
+        endTimeMillis: now,
+      };
+      const resp = await fetch("https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!resp.ok) throw new Error("Google Fit API error");
+      const fitData = await resp.json();
+      const records = (fitData.bucket ?? []).map((b: Record<string, unknown>) => {
+        const date = new Date(Number(b.startTimeMillis)).toISOString().split("T")[0];
+        const getVal = (idx: number) => {
+          const ds = (b.dataset as Record<string, unknown>[])?.[idx];
+          const pts = (ds as { point?: { value?: { intVal?: number; fpVal?: number }[] }[] })?.point ?? [];
+          return pts.reduce((sum: number, p) => sum + (p.value?.[0]?.intVal ?? p.value?.[0]?.fpVal ?? 0), 0);
+        };
+        return { date, steps: Math.round(getVal(0)), heart_rate_avg: Math.round(getVal(1)), sleep_minutes: Math.round(getVal(2) / 60000), active_calories: Math.round(getVal(3)) };
+      });
+      await doSync("googlefit", records);
+    } catch {
+      setSyncMessage("Google Fit データ取得に失敗しました");
+      setTimeout(() => setSyncMessage(null), 3000);
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const formatLastSync = (d: Date | null) => {
+    if (!d) return null;
+    const diff = Math.floor((Date.now() - d.getTime()) / 1000);
+    if (diff < 60) return "たった今";
+    if (diff < 3600) return `${Math.floor(diff / 60)}分前`;
+    return `${Math.floor(diff / 3600)}時間前`;
+  };
 
   const { data: visits = [], isLoading: visitsLoading, error: visitsError } = useQuery<SupabaseVisit[]>({
     queryKey: ["/api/patient/visits"],
@@ -351,72 +507,234 @@ export function SmartphoneView({
             )}
 
             {phoneTab === "health" && (
-              <div>
-                {healthLoading && (
-                  <div className="flex items-center justify-center py-10 gap-2" data-testid="health-loading">
+              <div className="space-y-3" data-testid="section-health-tab">
+
+                {/* ── 連携サービス選択 ── */}
+                {!connectedSource && (
+                  <div className="space-y-2" data-testid="health-connect-panel">
+                    <p className="text-[10px] text-muted-foreground tracking-[2px] mb-2">健康データ連携</p>
+                    <button
+                      className="w-full flex items-center gap-3 bg-card border border-border rounded-xl p-3.5 hover:border-primary/50 transition-colors text-left"
+                      onClick={connectHealthKit}
+                      disabled={isSyncing}
+                      data-testid="button-connect-healthkit"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-red-500/15 flex items-center justify-center shrink-0">
+                        <Heart className="w-4 h-4 text-red-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[12px] font-semibold text-foreground">Apple HealthKit</p>
+                        <p className="text-[10px] text-muted-foreground">iOS 16.4以降対応</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                    <button
+                      className="w-full flex items-center gap-3 bg-card border border-border rounded-xl p-3.5 hover:border-primary/50 transition-colors text-left"
+                      onClick={connectGoogleFit}
+                      disabled={isSyncing}
+                      data-testid="button-connect-googlefit"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+                        <Activity className="w-4 h-4 text-blue-400" />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[12px] font-semibold text-foreground">Google Fit</p>
+                        <p className="text-[10px] text-muted-foreground">Android対応</p>
+                      </div>
+                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                    </button>
+                    <div className="border-t border-border pt-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="w-full text-[11px] border-dashed border-muted-foreground/30 text-muted-foreground"
+                        onClick={() => doSync("mock", buildMockRecords())}
+                        disabled={isSyncing}
+                        data-testid="button-mock-sync"
+                      >
+                        {isSyncing ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1" /> : <Wifi className="w-3.5 h-3.5 mr-1" />}
+                        モックデータで同期する
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── 連携済みヘッダー ── */}
+                {connectedSource && (
+                  <div className="flex items-center justify-between" data-testid="health-connected-header">
+                    <div className="flex items-center gap-2">
+                      {connectedSource === "healthkit" && <Badge variant="outline" className="border-red-500/40 text-red-400 text-[9px]"><Heart className="w-2.5 h-2.5 mr-0.5" /> HealthKit</Badge>}
+                      {connectedSource === "googlefit" && <Badge variant="outline" className="border-blue-500/40 text-blue-400 text-[9px]"><Activity className="w-2.5 h-2.5 mr-0.5" /> Google Fit</Badge>}
+                      {connectedSource === "mock" && <Badge variant="outline" className="border-muted-foreground/40 text-muted-foreground text-[9px]"><Wifi className="w-2.5 h-2.5 mr-0.5" /> モック</Badge>}
+                      {lastSyncTime && <span className="text-[9px] text-muted-foreground">最終同期: {formatLastSync(lastSyncTime)}</span>}
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <Button size="sm" variant="ghost" className="h-6 px-2 text-[10px] text-primary" onClick={() => doSync(connectedSource, buildMockRecords())} disabled={isSyncing} data-testid="button-now-sync">
+                        {isSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}
+                        <span className="ml-1">今すぐ同期</span>
+                      </Button>
+                      <button className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground" onClick={() => setConnectedSource(null)} data-testid="button-disconnect-health"><X className="w-3 h-3" /></button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ── 同期メッセージ ── */}
+                {syncMessage && (
+                  <div className={`text-[11px] text-center py-1.5 rounded-md ${syncMessage.includes("失敗") ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"}`} data-testid="text-sync-message">
+                    {syncMessage}
+                  </div>
+                )}
+
+                {/* ── ローディング ── */}
+                {(healthLoading || isSyncing) && (
+                  <div className="flex items-center justify-center py-6 gap-2" data-testid="health-loading">
                     <Loader2 className="w-4 h-4 animate-spin text-primary" />
-                    <span className="text-[12px] text-muted-foreground">健康データを読み込んでいます...</span>
+                    <span className="text-[12px] text-muted-foreground">{isSyncing ? "同期中..." : "読み込み中..."}</span>
                   </div>
                 )}
-                {healthError && (
-                  <div className="bg-red-500/10 border border-red-500/20 rounded-md p-3 flex items-center gap-2 mt-3" data-testid="health-error">
-                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
-                    <p className="text-[11px] text-red-300">健康データの取得に失敗しました</p>
-                  </div>
-                )}
-                {!healthLoading && !healthError && healthRows.length === 0 && (
-                  <div className="text-center py-10" data-testid="health-empty">
-                    <Activity className="w-8 h-8 text-muted-foreground/20 mx-auto mb-3" />
+
+                {/* ── データなし ── */}
+                {!healthLoading && !isSyncing && healthRows.length === 0 && connectedSource && (
+                  <div className="text-center py-8" data-testid="health-empty">
+                    <Activity className="w-8 h-8 text-muted-foreground/20 mx-auto mb-2" />
                     <p className="text-[12px] text-muted-foreground/50">まだ記録がありません</p>
                   </div>
                 )}
-                {!healthLoading && healthRows.length > 0 && (() => {
+
+                {/* ── データ表示 ── */}
+                {!healthLoading && !isSyncing && healthRows.length > 0 && (() => {
                   const latest = healthRows[healthRows.length - 1];
                   const steps = latest.steps ?? 0;
                   const sleepH = latest.sleep_minutes ? (latest.sleep_minutes / 60) : 0;
                   const hr = latest.heart_rate_avg ?? 0;
+                  const calories = latest.active_calories ?? 0;
                   const metrics = [
-                    { icon: Footprints, label: "今日の歩数", value: steps.toLocaleString(), unit: "steps", pct: (steps / 8000) * 100, color: statusColor(steps, 5000, 2000), bar: statusBg(steps, 5000, 2000) },
-                    { icon: Moon, label: "昨夜の睡眠", value: sleepH.toFixed(1), unit: "時間", pct: (sleepH / 9) * 100, color: statusColor(sleepH, 7, 5.5), bar: statusBg(sleepH, 7, 5.5) },
-                    { icon: Heart, label: "安静時心拍", value: hr > 0 ? String(hr) : "---", unit: "bpm", pct: hr > 0 ? Math.min(hr / 120 * 100, 100) : 0, color: "text-red-400", bar: "bg-red-400" },
+                    { icon: Footprints, label: "今日の歩数", value: steps > 0 ? steps.toLocaleString() : "--", unit: "steps", pct: (steps / 8000) * 100, color: statusColor(steps, 5000, 2000), bar: statusBg(steps, 5000, 2000), goal: 8000, goalLabel: "目標8,000" },
+                    { icon: Moon, label: "昨夜の睡眠", value: sleepH > 0 ? sleepH.toFixed(1) : "--", unit: "時間", pct: (sleepH / 9) * 100, color: statusColor(sleepH, 7, 5.5), bar: statusBg(sleepH, 7, 5.5), goal: 420, goalLabel: "目標7h" },
+                    { icon: Heart, label: "安静時心拍", value: hr > 0 ? String(hr) : "--", unit: "bpm", pct: hr > 0 ? Math.min(hr / 120 * 100, 100) : 0, color: "text-red-400", bar: "bg-red-400", goal: null, goalLabel: null },
+                    { icon: Flame, label: "消費カロリー", value: calories > 0 ? calories.toLocaleString() : "--", unit: "kcal", pct: (calories / 500) * 100, color: "text-orange-400", bar: "bg-orange-400", goal: null, goalLabel: null },
                   ];
                   return (
                     <div className="space-y-2">
-                      <p className="text-[10px] text-primary text-right flex items-center justify-end gap-1">
-                        <Check className="w-3 h-3" /> 最終同期: {latest.recorded_date}
-                      </p>
                       {metrics.map(m => (
                         <div key={m.label} className="bg-card border border-border rounded-md p-3" data-testid={`phone-health-${m.label}`}>
                           <div className="flex items-center gap-2 mb-1.5">
                             <m.icon className={`w-4 h-4 ${m.color}`} />
                             <div className="flex-1">
-                              <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                              <div className="flex justify-between items-baseline">
+                                <p className="text-[10px] text-muted-foreground">{m.label}</p>
+                                {m.goalLabel && <p className="text-[8px] text-muted-foreground/60">{m.goalLabel}</p>}
+                              </div>
                               <p className={`font-mono text-base font-bold ${m.color}`}>
                                 {m.value} <span className="text-[10px] text-muted-foreground font-normal">{m.unit}</span>
                               </p>
                             </div>
                           </div>
-                          <div className="h-1 bg-border rounded-full overflow-hidden">
+                          <div className="h-1 bg-border rounded-full overflow-hidden relative">
                             <div className={`h-full rounded-full ${m.bar} transition-all duration-1000`} style={{ width: `${Math.min(m.pct, 100)}%` }} />
+                            {m.goal && (
+                              <div className="absolute top-0 h-full w-px bg-white/40" style={{ left: "100%" }} />
+                            )}
                           </div>
                         </div>
                       ))}
-                      <p className="text-[10px] text-muted-foreground text-center pt-1">直近7日分のデータを表示</p>
-                      <div className="grid grid-cols-7 gap-1 pt-1" data-testid="health-week-chart">
-                        {healthRows.map((row, i) => {
-                          const s = row.steps ?? 0;
-                          const pct = Math.min((s / 8000) * 100, 100);
-                          const d = new Date(row.recorded_date);
-                          const dayLabel = d.toLocaleDateString("ja-JP", { weekday: "short" });
-                          return (
-                            <div key={i} className="flex flex-col items-center gap-1">
-                              <div className="w-full h-12 bg-border/40 rounded-sm relative overflow-hidden">
-                                <div className={`absolute bottom-0 w-full rounded-sm transition-all ${statusBg(s, 5000, 2000)}`} style={{ height: `${pct}%` }} />
+
+                      {/* ── 歩数7日グラフ ── */}
+                      <div className="mt-2">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <p className="text-[9px] text-muted-foreground tracking-[2px]">歩数 7日間</p>
+                          <p className="text-[8px] text-muted-foreground/60">目標 8,000歩</p>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1" data-testid="health-week-chart-steps">
+                          {healthRows.map((row, i) => {
+                            const s = row.steps ?? 0;
+                            const pct = Math.min((s / 8000) * 100, 100);
+                            const goalPct = Math.min((8000 / 8000) * 100, 100);
+                            const d = new Date(row.recorded_date);
+                            const dayLabel = d.toLocaleDateString("ja-JP", { weekday: "short" });
+                            return (
+                              <div key={i} className="flex flex-col items-center gap-0.5">
+                                <div className="w-full h-14 bg-border/30 rounded-sm relative overflow-hidden">
+                                  <div className={`absolute bottom-0 w-full rounded-sm transition-all ${statusBg(s, 5000, 2000)}`} style={{ height: `${pct}%` }} />
+                                  <div className="absolute w-full border-t border-dashed border-white/20" style={{ bottom: `${goalPct}%` }} />
+                                </div>
+                                <span className="text-[8px] text-muted-foreground">{dayLabel}</span>
+                                <span className="text-[7px] text-muted-foreground/50 font-mono">{s > 0 ? (s / 1000).toFixed(1) + "k" : "--"}</span>
                               </div>
-                              <span className="text-[8px] text-muted-foreground">{dayLabel}</span>
-                            </div>
-                          );
-                        })}
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* ── 睡眠7日グラフ ── */}
+                      <div className="mt-2">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <p className="text-[9px] text-muted-foreground tracking-[2px]">睡眠時間 7日間</p>
+                          <p className="text-[8px] text-muted-foreground/60">目標 7時間</p>
+                        </div>
+                        <div className="grid grid-cols-7 gap-1" data-testid="health-week-chart-sleep">
+                          {healthRows.map((row, i) => {
+                            const sm = row.sleep_minutes ?? 0;
+                            const h = sm / 60;
+                            const pct = Math.min((h / 9) * 100, 100);
+                            const d = new Date(row.recorded_date);
+                            const dayLabel = d.toLocaleDateString("ja-JP", { weekday: "short" });
+                            return (
+                              <div key={i} className="flex flex-col items-center gap-0.5">
+                                <div className="w-full h-10 bg-border/30 rounded-sm relative overflow-hidden">
+                                  <div className={`absolute bottom-0 w-full rounded-sm transition-all ${statusBg(h, 7, 5.5)}`} style={{ height: `${pct}%` }} />
+                                  <div className="absolute w-full border-t border-dashed border-white/20" style={{ bottom: `${(7 / 9) * 100}%` }} />
+                                </div>
+                                <span className="text-[8px] text-muted-foreground">{dayLabel}</span>
+                                <span className="text-[7px] text-muted-foreground/50 font-mono">{sm > 0 ? h.toFixed(1) + "h" : "--"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      {/* ── 心拍折れ線グラフ ── */}
+                      <div className="mt-2">
+                        <div className="flex justify-between items-center mb-1.5">
+                          <p className="text-[9px] text-muted-foreground tracking-[2px]">心拍平均 7日間</p>
+                          <p className="text-[8px] text-red-400/70 font-mono">bpm</p>
+                        </div>
+                        <div className="relative h-12 bg-border/20 rounded-sm" data-testid="health-week-chart-hr">
+                          {(() => {
+                            const validRows = healthRows.filter(r => (r.heart_rate_avg ?? 0) > 0);
+                            if (validRows.length < 2) return <div className="flex items-center justify-center h-full text-[10px] text-muted-foreground/40">データ不足</div>;
+                            const vals = validRows.map(r => r.heart_rate_avg ?? 0);
+                            const min = Math.min(...vals) - 5;
+                            const max = Math.max(...vals) + 5;
+                            const w = 100 / (healthRows.length - 1);
+                            const points = healthRows.map((r, i) => {
+                              const v = r.heart_rate_avg ?? 0;
+                              const x = i * w;
+                              const y = v > 0 ? 100 - ((v - min) / (max - min)) * 100 : null;
+                              return { x, y, v };
+                            }).filter(p => p.y !== null);
+                            const pathD = points.map((p, i) => `${i === 0 ? "M" : "L"} ${p.x} ${p.y}`).join(" ");
+                            return (
+                              <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="w-full h-full">
+                                <path d={pathD} fill="none" stroke="rgb(248,113,113)" strokeWidth="2" vectorEffect="non-scaling-stroke" />
+                                {points.map((p, i) => (
+                                  <circle key={i} cx={p.x} cy={p.y!} r="3" fill="rgb(248,113,113)" vectorEffect="non-scaling-stroke" />
+                                ))}
+                              </svg>
+                            );
+                          })()}
+                        </div>
+                        <div className="grid grid-cols-7 mt-0.5">
+                          {healthRows.map((row, i) => {
+                            const d = new Date(row.recorded_date);
+                            return (
+                              <div key={i} className="flex flex-col items-center">
+                                <span className="text-[7px] text-muted-foreground">{d.toLocaleDateString("ja-JP", { weekday: "short" })}</span>
+                                <span className="text-[7px] text-red-400/70 font-mono">{row.heart_rate_avg ?? "--"}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   );

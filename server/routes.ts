@@ -653,6 +653,46 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
+  // ─── Patient PWA: Health Sync ──────────────────────────────────────
+  const healthSyncRecordSchema = z.object({
+    date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    steps: z.number().int().min(0).optional(),
+    heart_rate_avg: z.number().min(0).optional(),
+    sleep_minutes: z.number().int().min(0).optional(),
+    active_calories: z.number().min(0).optional(),
+  });
+  const healthSyncSchema = z.object({
+    source: z.enum(["healthkit", "googlefit", "mock"]),
+    records: z.array(healthSyncRecordSchema).min(1).max(30),
+  });
+
+  app.post("/api/health-data/sync", async (req, res) => {
+    try {
+      const parsed = healthSyncSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      const { source, records } = parsed.data;
+      const patient_id = await getDemoPatientId();
+      const supabase = getSupabaseAdmin();
+      const dates = records.map(r => r.date);
+      // 既存の同日データを削除してから挿入（UNIQUE制約がなくても安全に動作）
+      await supabase.from("health_data").delete().eq("patient_id", patient_id).in("recorded_date", dates);
+      const rows = records.map(r => ({
+        patient_id,
+        recorded_date: r.date,
+        steps: r.steps ?? null,
+        heart_rate_avg: r.heart_rate_avg ?? null,
+        sleep_minutes: r.sleep_minutes ?? null,
+        active_calories: r.active_calories ?? null,
+        source,
+      }));
+      const { error } = await supabase.from("health_data").insert(rows);
+      if (error) return res.status(500).json({ error: error.message });
+      res.json({ saved: rows.length, source });
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
+
   // ─── Coupons ───────────────────────────────────────────────────────
   function generateCouponCode(): string {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
