@@ -470,7 +470,7 @@ scoreは0〜100の整数値で出力してください。`,
 
     const { phone, clinic_name, patient_id } = parsed.data;
     const pwaUrl = process.env.VITE_PWA_URL || process.env.PWA_URL || "https://vlux.health";
-    const messageBody = `【${clinic_name}】\n本日はご来院ありがとうございました。\nVLUXアプリでいつでも施術記録・生活アドバイスをご確認いただけます。\n\n▼ アプリを開く\n${pwaUrl}\n\n初回は右下の「ホーム画面に追加」でインストールしてください。\nご不明な点はスタッフまでお声がけください。`;
+    const messageBody = `【${clinic_name}】\n本日はご来院ありがとうございました。\nVLUXアプリでいつでも施術記録・生活アドバイスをご確認いただけます。\n\n▼ アプリを開く\n${pwaUrl}\n\n🎁 初回登録特典\nアプリ登録完了で次回施術料500円OFFクーポンをプレゼント。\nアプリ内のクーポンウォレットをご確認ください。\n\n初回は右下の「ホーム画面に追加」でインストールしてください。\nご不明な点はスタッフまでお声がけください。`;
 
     const sid = process.env.TWILIO_ACCOUNT_SID;
     const token = process.env.TWILIO_AUTH_TOKEN;

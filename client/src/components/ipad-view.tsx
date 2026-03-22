@@ -1036,21 +1036,21 @@ export function IPadView(props: IPadViewProps) {
 
       {/* ── 初診説明フルスクリーン ── */}
       {showOnboarding && (
-        <div className="fixed inset-0 z-[200] bg-[#0a0f1e] flex flex-col items-center justify-center p-8" data-testid="screen-onboarding">
-          <div className="w-full max-w-[560px]">
+        <div className="fixed inset-0 z-[200] bg-[#0a0f1e] flex flex-col items-center justify-center p-8 overflow-y-auto" data-testid="screen-onboarding">
+          <div className="w-full max-w-[600px] py-4">
             <p className="font-mono text-[10px] tracking-[4px] text-primary/60 text-center mb-2">VLUX PATIENT GUIDE</p>
-            <h1 className="text-[24px] font-bold text-foreground text-center mb-10">VLUXアプリのはじめかた</h1>
-            <div className="grid grid-cols-2 gap-4">
+            <h1 className="text-[24px] font-bold text-foreground text-center mb-8">VLUXアプリのはじめかた</h1>
+
+            {/* ── 4 Steps ── */}
+            <div className="grid grid-cols-2 gap-4 mb-8">
               {[
                 { step: 1, title: "今SMSが届きます", desc: "URLをタップして開いてください", icon: MessageSquare },
                 { step: 2, title: "「共有」ボタンをタップ", desc: "画面下の四角から矢印が出ているアイコンです", icon: Send },
                 { step: 3, title: "「ホーム画面に追加」を選択", desc: "アプリとして使えるようになります", icon: Smartphone },
-                { step: 4, title: "施術記録が届きます", desc: "来院のたびに記録・毎日の健康データも自動記録", icon: Heart },
+                { step: 4, title: "施術記録が届きます", desc: "来院のたびに記録・毎日の健康データも自動で記録されます", icon: Heart },
               ].map(({ step, title, desc, icon: Icon }) => (
                 <div key={step} className="bg-card border border-border rounded-xl p-5 flex flex-col gap-3">
-                  <div className="flex items-center gap-2">
-                    <span className="font-mono text-[11px] text-primary/60 tracking-[2px]">STEP {step}</span>
-                  </div>
+                  <span className="font-mono text-[11px] text-primary/60 tracking-[2px]">STEP {step}</span>
                   <Icon className="w-7 h-7 text-primary" />
                   <div>
                     <p className="text-[15px] font-bold text-foreground mb-1">{title}</p>
@@ -1059,9 +1059,46 @@ export function IPadView(props: IPadViewProps) {
                 </div>
               ))}
             </div>
+
+            {/* ── クーポン特典 ── */}
+            <div className="border border-primary/30 rounded-xl p-6 bg-primary/5" data-testid="onboarding-coupon-section">
+              <div className="flex items-center gap-2 mb-4">
+                <span className="text-[18px]">🎁</span>
+                <p className="text-[15px] font-bold text-foreground">アプリ登録特典</p>
+              </div>
+              <div className="space-y-3 mb-5">
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <p className="text-[13px] text-foreground">初回登録：<span className="text-primary font-bold">次回施術料 500円OFF</span></p>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <p className="text-[13px] text-foreground">毎回の来院でポイント付与</p>
+                </div>
+                <div className="flex items-start gap-2.5">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 mt-0.5 shrink-0" />
+                  <p className="text-[13px] text-foreground">ランクが上がるほど割引率アップ</p>
+                </div>
+              </div>
+              <div className="bg-background/60 rounded-lg p-3 mb-4">
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5 text-[11px] font-mono">
+                  {[
+                    { label: "Bronze", pct: "3%", color: "text-amber-700" },
+                    { label: "Silver", pct: "7%", color: "text-slate-300" },
+                    { label: "Gold", pct: "10%", color: "text-amber-400" },
+                    { label: "Platinum", pct: "15%", color: "text-purple-400" },
+                    { label: "永久会員", pct: "20%", color: "text-cyan-300" },
+                  ].map(r => (
+                    <span key={r.label} className={r.color}>{r.label} <span className="text-foreground font-bold">{r.pct}</span></span>
+                  ))}
+                </div>
+              </div>
+              <p className="text-[12px] text-primary/80 text-center font-medium">「来るたびにお得になる」仕組みです。</p>
+            </div>
+
             <Button
               variant="ghost"
-              className="mt-10 w-full gap-2 text-muted-foreground"
+              className="mt-8 w-full gap-2 text-muted-foreground"
               onClick={() => setShowOnboarding(false)}
               data-testid="button-close-onboarding"
             >
