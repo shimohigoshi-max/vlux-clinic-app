@@ -4,6 +4,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   Loader2, Zap, Send, Brain, Stethoscope, Check,
   Shield, Sparkles, Droplets, Layers,
@@ -12,7 +14,7 @@ import {
   AlertTriangle, TrendingUp, TrendingDown, Minus,
   ChevronRight, MapPin, GlassWater, CircleDot,
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
-  UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History,
+  UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
 } from "lucide-react";
 import type {
   SummaryResult, KarteResult, CorrelationResult,
@@ -113,6 +115,40 @@ export function IPadView(props: IPadViewProps) {
   // ── Visit filter ─────────────────────────────────────────────────
   const [visitPatientFilter, setVisitPatientFilter] = useState("");
 
+  // ── Patient search ───────────────────────────────────────────────
+  const [patientSearch, setPatientSearch] = useState("");
+
+  // ── New patient modal ────────────────────────────────────────────
+  const [showNewPatient, setShowNewPatient] = useState(false);
+  const [newPatientForm, setNewPatientForm] = useState({
+    name_kana: "", birth_date: "", gender: "", phone: "",
+  });
+  const [isSavingPatient, setIsSavingPatient] = useState(false);
+  const [newPatientError, setNewPatientError] = useState<string | null>(null);
+
+  const saveNewPatient = async () => {
+    if (!newPatientForm.name_kana.trim() || !clinicId) return;
+    setIsSavingPatient(true);
+    setNewPatientError(null);
+    try {
+      const body: Record<string, string> = {
+        name_kana: newPatientForm.name_kana.trim(),
+        clinic_id: clinicId,
+        member_grade: "bronze",
+      };
+      if (newPatientForm.birth_date) body.birth_date = newPatientForm.birth_date;
+      if (newPatientForm.gender) body.gender = newPatientForm.gender;
+      if (newPatientForm.phone) body.phone = newPatientForm.phone;
+      await apiRequest("POST", "/api/patients", body);
+      queryClient.invalidateQueries({ queryKey: ["admin-patients", clinicId] });
+      setShowNewPatient(false);
+      setNewPatientForm({ name_kana: "", birth_date: "", gender: "", phone: "" });
+    } catch {
+      setNewPatientError("保存に失敗しました。再度お試しください。");
+    }
+    setIsSavingPatient(false);
+  };
+
   // ── Supabase queries ─────────────────────────────────────────────
   const { data: clinicInfo } = useQuery<ClinicInfo>({
     queryKey: ["/api/admin/clinic"],
@@ -152,6 +188,12 @@ export function IPadView(props: IPadViewProps) {
   }, [patients]);
 
   const selectedPatient = patients.find(p => p.id === selectedPatientId) ?? null;
+
+  const filteredPatients = useMemo(() => {
+    if (!patientSearch.trim()) return patients;
+    const q = patientSearch.trim().toLowerCase();
+    return patients.filter(p => p.name_kana.toLowerCase().includes(q));
+  }, [patients, patientSearch]);
 
   const filteredVisits = useMemo(() => {
     if (!visitPatientFilter.trim()) return adminVisits;
@@ -253,13 +295,34 @@ export function IPadView(props: IPadViewProps) {
       {/* ── 患者選択 ───────────────────────────────────────────────── */}
       {ipadTab === "patients" && (
         <div data-testid="patients-tab">
-          <div className="flex items-center justify-between mb-3">
-            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px]">
+          {/* ヘッダー行 */}
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mr-auto">
               {clinicInfo ? `${clinicInfo.name} — 患者一覧（${patients.length}名）` : "クリニック情報を読み込み中..."}
             </p>
             <Button variant="outline" size="sm" onClick={() => queryClient.invalidateQueries({ queryKey: ["admin-patients", clinicId] })}>
-              <RefreshCw className="w-3.5 h-3.5" /> 更新
+              <RefreshCw className="w-3.5 h-3.5" />
             </Button>
+            <Button size="sm" onClick={() => { setNewPatientError(null); setShowNewPatient(true); }} data-testid="button-new-patient">
+              <UserPlus className="w-3.5 h-3.5" /> 新規患者登録
+            </Button>
+          </div>
+
+          {/* 検索バー */}
+          <div className="relative mb-3">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground pointer-events-none" />
+            <Input
+              value={patientSearch}
+              onChange={e => setPatientSearch(e.target.value)}
+              placeholder="患者名で検索（カナ）"
+              className="pl-8 text-[12px] h-8"
+              data-testid="input-patient-search"
+            />
+            {patientSearch && (
+              <button onClick={() => setPatientSearch("")} className="absolute right-2.5 top-1/2 -translate-y-1/2">
+                <X className="w-3.5 h-3.5 text-muted-foreground hover:text-foreground" />
+              </button>
+            )}
           </div>
 
           {patientsLoading && (
@@ -274,16 +337,17 @@ export function IPadView(props: IPadViewProps) {
               <p className="text-[12px] text-red-300">患者データの取得に失敗しました。再度更新してください。</p>
             </div>
           )}
-          {!patientsLoading && !patientsError && patients.length === 0 && (
+          {!patientsLoading && !patientsError && filteredPatients.length === 0 && (
             <div className="text-center py-16" data-testid="patients-empty">
               <Users className="w-10 h-10 text-muted-foreground/20 mx-auto mb-3" />
-              <p className="text-[13px] text-muted-foreground/50">患者が登録されていません</p>
-              <p className="text-[11px] text-muted-foreground/30 mt-1">/api/dev/seed を実行してテストデータを追加できます</p>
+              <p className="text-[13px] text-muted-foreground/50">
+                {patientSearch ? "該当する患者が見つかりません" : "患者が登録されていません"}
+              </p>
             </div>
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {patients.map(p => {
+            {filteredPatients.map(p => {
               const isSelected = selectedPatientId === p.id;
               const d = p.birth_date ? new Date(p.birth_date) : null;
               const age = d ? (new Date().getFullYear() - d.getFullYear()) : null;
@@ -316,6 +380,7 @@ export function IPadView(props: IPadViewProps) {
               );
             })}
           </div>
+
         </div>
       )}
 
@@ -838,6 +903,60 @@ export function IPadView(props: IPadViewProps) {
       )}
 
       {ipadTab === "ec-sales" && <ECSalesTab />}
+
+      {/* ── 新規患者登録モーダル ── */}
+      {showNewPatient && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center" data-testid="modal-new-patient">
+          <div className="absolute inset-0 bg-black/70" onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} />
+          <div className="relative z-10 w-full max-w-[420px] mx-4 bg-card border border-border rounded-xl shadow-2xl p-6">
+            <div className="flex items-center justify-between mb-5">
+              <h2 className="flex items-center gap-2 text-[14px] font-semibold text-foreground">
+                <UserPlus className="w-4 h-4 text-primary" /> 新規患者登録
+              </h2>
+              <button onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} className="text-muted-foreground hover:text-foreground" data-testid="button-close-new-patient">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-mono text-primary/70 tracking-[1px]">氏名（カナ）<span className="text-red-400 ml-1">*</span></Label>
+                <Input value={newPatientForm.name_kana} onChange={e => setNewPatientForm(f => ({ ...f, name_kana: e.target.value }))} placeholder="例：ヤマダ タロウ" className="text-[13px]" data-testid="input-new-patient-name" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">生年月日</Label>
+                <Input type="date" value={newPatientForm.birth_date} onChange={e => setNewPatientForm(f => ({ ...f, birth_date: e.target.value }))} className="text-[13px]" data-testid="input-new-patient-birth" />
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">性別</Label>
+                <Select value={newPatientForm.gender} onValueChange={v => setNewPatientForm(f => ({ ...f, gender: v }))}>
+                  <SelectTrigger className="text-[13px]" data-testid="select-new-patient-gender"><SelectValue placeholder="選択してください" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="男性">男性</SelectItem>
+                    <SelectItem value="女性">女性</SelectItem>
+                    <SelectItem value="その他">その他</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1.5">
+                <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
+                <Input type="tel" value={newPatientForm.phone} onChange={e => setNewPatientForm(f => ({ ...f, phone: e.target.value }))} placeholder="例：090-1234-5678" className="text-[13px]" data-testid="input-new-patient-phone" />
+              </div>
+              {newPatientError && (
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2" data-testid="new-patient-error">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+                  <p className="text-[12px] text-red-300">{newPatientError}</p>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 mt-6">
+              <Button variant="ghost" size="sm" onClick={() => { setShowNewPatient(false); setNewPatientError(null); }} data-testid="button-cancel-new-patient">キャンセル</Button>
+              <Button onClick={saveNewPatient} disabled={isSavingPatient || !newPatientForm.name_kana.trim()} data-testid="button-save-new-patient">
+                {isSavingPatient ? <><Loader2 className="w-4 h-4 animate-spin" /> 保存中...</> : <><Save className="w-4 h-4" /> 保存</>}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
