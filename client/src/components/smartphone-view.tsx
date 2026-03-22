@@ -98,7 +98,7 @@ export function SmartphoneView({
               <User className="w-5 h-5 text-primary-foreground" />
             </div>
             <div>
-              <p className="text-[14px] font-bold text-foreground" data-testid="text-phone-patient-name">田中 大輔 さん</p>
+              <p className="text-[14px] font-bold text-foreground" data-testid="text-phone-patient-name">{profile?.name_kana ? `${profile.name_kana} さん` : "---"}</p>
               <p className="text-[10px] text-muted-foreground flex items-center gap-1">
                 <Clock className="w-3 h-3" /> 次回: 3月16日（土）14:00
               </p>
