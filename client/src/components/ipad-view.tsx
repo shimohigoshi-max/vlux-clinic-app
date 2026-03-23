@@ -475,10 +475,12 @@ export function IPadView(props: IPadViewProps) {
               {healthSyncing ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</> : <><Activity className="w-3.5 h-3.5" /> HealthKit 同期</>}
             </Button>
           )}
-          {/* Settings gear */}
-          <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} data-testid="button-open-settings">
-            <Settings className="w-3.5 h-3.5" />
-          </Button>
+          {/* Settings gear — owner only */}
+          {currentRole === "owner" && (
+            <Button variant="outline" size="sm" onClick={() => setShowSettings(true)} data-testid="button-open-settings">
+              <Settings className="w-3.5 h-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 
@@ -907,7 +909,7 @@ export function IPadView(props: IPadViewProps) {
                 data-testid="select-visit-staff-filter"
               >
                 <option value="">全スタッフ</option>
-                {DEMO_STAFF.map(s => (
+                {(staffs.length > 0 ? staffs.map(s => s.name) : DEMO_STAFF).map(s => (
                   <option key={s} value={s}>{s}</option>
                 ))}
               </select>
