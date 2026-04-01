@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "_oSIWhSJ5wXdLxc4koPHO"
+uri = "file://connected-healthcare.tar.gz"
+type = "unspecified"
+title = "Connected Healthcare ソースコード (tar.gz)"
