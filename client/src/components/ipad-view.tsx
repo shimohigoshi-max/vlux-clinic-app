@@ -110,6 +110,10 @@ interface IPadViewProps {
   preRecDone: boolean;
   postRecDone: boolean;
   audioUploadError: string | null;
+  preTranscript: { teacher: string; patient: string } | null;
+  postTranscript: { teacher: string; patient: string } | null;
+  isTranscribingPre: boolean;
+  isTranscribingPost: boolean;
   onStartRecPhase: (phase: "pre" | "post") => void;
   onStopRecPhase: (phase: "pre" | "post") => void;
   onLoadSample: () => void;
@@ -146,6 +150,7 @@ export function IPadView(props: IPadViewProps) {
   const {
     ipadTab, onIpadTabChange, transcript, onTranscriptChange,
     isRecordingPre, isRecordingPost, preRecDone, postRecDone, audioUploadError,
+    preTranscript, postTranscript, isTranscribingPre, isTranscribingPost,
     onStartRecPhase, onStopRecPhase, onLoadSample,
     summary, isSummarizing, karte, isAnalyzing, onDoKarte, karteSaved, karteVisitId,
     correlationResult, isCorrelating, onDoCorrelation,
@@ -699,7 +704,25 @@ export function IPadView(props: IPadViewProps) {
               </div>
             </div>
 
-            {/* Upload error */}
+            {/* Transcription loading indicators */}
+            {(isTranscribingPre || isTranscribingPost) && (
+              <div className="flex gap-2 mb-2">
+                {isTranscribingPre && (
+                  <div className="flex items-center gap-1.5 flex-1 bg-primary/10 border border-primary/20 rounded px-2.5 py-1.5" data-testid="text-transcribing-pre">
+                    <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                    <span className="text-[11px] text-primary font-mono">施術前 文字起こし中...</span>
+                  </div>
+                )}
+                {isTranscribingPost && (
+                  <div className="flex items-center gap-1.5 flex-1 bg-primary/10 border border-primary/20 rounded px-2.5 py-1.5" data-testid="text-transcribing-post">
+                    <Loader2 className="w-3 h-3 animate-spin text-primary" />
+                    <span className="text-[11px] text-primary font-mono">施術後 文字起こし中...</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Upload / transcription error */}
             {audioUploadError && (
               <div className="flex items-center gap-1.5 mb-2 bg-red-500/10 border border-red-500/20 rounded px-2.5 py-1.5" data-testid="text-audio-upload-error">
                 <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
@@ -707,15 +730,36 @@ export function IPadView(props: IPadViewProps) {
               </div>
             )}
 
-            <div className="relative">
-              <Textarea
-                value={transcript}
-                onChange={e => onTranscriptChange(e.target.value)}
-                placeholder="会話テキストを手入力、またはサンプルを読み込んでください..."
-                className="h-[180px] resize-none text-[12px] leading-[1.8] bg-card"
-                data-testid="input-transcript"
-              />
-            </div>
+            {/* Transcript display: pre/post sections when available, otherwise plain textarea */}
+            {(preTranscript || postTranscript) ? (
+              <div className="bg-card border border-border rounded-md text-[12px] leading-[1.9] p-3 h-[180px] overflow-y-auto font-mono whitespace-pre-wrap" data-testid="input-transcript">
+                {preTranscript && (
+                  <>
+                    <span className="text-primary font-bold">【施術前】</span>{"\n"}
+                    <span className="text-cyan-400">先生：</span>{preTranscript.teacher}{"\n"}
+                    <span className="text-amber-400">患者：</span>{preTranscript.patient}
+                  </>
+                )}
+                {preTranscript && postTranscript && <>{"\n\n"}</>}
+                {postTranscript && (
+                  <>
+                    <span className="text-primary font-bold">【施術後】</span>{"\n"}
+                    <span className="text-cyan-400">先生：</span>{postTranscript.teacher}{"\n"}
+                    <span className="text-amber-400">患者：</span>{postTranscript.patient}
+                  </>
+                )}
+              </div>
+            ) : (
+              <div className="relative">
+                <Textarea
+                  value={transcript}
+                  onChange={e => onTranscriptChange(e.target.value)}
+                  placeholder="録音後に文字起こし結果が表示されます。サンプル読込も可。"
+                  className="h-[180px] resize-none text-[12px] leading-[1.8] bg-card font-mono"
+                  data-testid="input-transcript"
+                />
+              </div>
+            )}
             <div className="flex gap-2 mt-2">
               <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
                 <FileText className="w-4 h-4" /> サンプル読込

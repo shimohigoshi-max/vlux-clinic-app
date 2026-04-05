@@ -230,6 +230,58 @@ export async function registerRoutes(
     }
   );
 
+  // Whisper transcription endpoint
+  app.post(
+    "/api/transcribe",
+    (req, res, next) => {
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => { (req as any).rawBody = Buffer.concat(chunks); next(); });
+      req.on("error", next);
+    },
+    async (req, res) => {
+      const openaiKey = process.env.OPENAI_API_KEY;
+      if (!openaiKey) {
+        return res.status(500).json({ error: "APIキーを確認してください" });
+      }
+      const body = (req as any).rawBody as Buffer;
+      if (!body || body.length === 0) {
+        return res.status(400).json({ error: "録音が正常に取得できませんでした" });
+      }
+      const speaker = (req.headers["x-speaker"] as string) || "speaker";
+      const contentType = req.headers["content-type"] || "audio/wav";
+      const ext = contentType.includes("wav") ? "wav" : contentType.includes("mp4") ? "mp4" : "webm";
+      try {
+        const formData = new FormData();
+        const audioBlob = new Blob([body], { type: contentType });
+        formData.append("file", audioBlob, `${speaker}.${ext}`);
+        formData.append("model", "whisper-1");
+        formData.append("language", "ja");
+        formData.append("prompt",
+          "これは整骨院での施術会話です。九州・鹿児島・博多の方言が含まれる場合があります。" +
+          "腰痛、肩こり、しびれ、骨盤、筋肉、施術などの用語が含まれます。"
+        );
+        const whisperRes = await fetch("https://api.openai.com/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${openaiKey}` },
+          body: formData,
+        });
+        if (!whisperRes.ok) {
+          const errText = await whisperRes.text();
+          console.error("[whisper] error:", errText);
+          if (whisperRes.status === 401) return res.status(500).json({ error: "APIキーを確認してください" });
+          return res.status(500).json({ error: "文字起こしに失敗しました。再試行してください" });
+        }
+        const data = await whisperRes.json() as { text: string };
+        console.log(`[whisper] ${speaker}: ${data.text.substring(0, 80)}...`);
+        res.json({ text: data.text });
+      } catch (e) {
+        console.error("[whisper] exception:", e);
+        res.status(500).json({ error: "通信エラーが発生しました。再試行してください" });
+      }
+    }
+  );
+
   app.post("/api/summarize", async (req, res) => {
     try {
       if (!checkRateLimit(req.ip || "unknown")) {

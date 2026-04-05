@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Stethoscope, Smartphone } from "lucide-react";
 import { IPadView } from "@/components/ipad-view";
@@ -49,6 +49,62 @@ interface SpeechRecognitionAlternative {
   transcript: string;
   confidence: number;
 }
+
+// --- Audio utilities (module-level, not inside component) ---
+
+function writeStr(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
+}
+
+function encodeWAV(samples: Float32Array, sampleRate: number): Blob {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const view = new DataView(buf);
+  writeStr(view, 0, "RIFF");
+  view.setUint32(4, 36 + samples.length * 2, true);
+  writeStr(view, 8, "WAVE");
+  writeStr(view, 12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);   // PCM
+  view.setUint16(22, 1, true);   // mono
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  writeStr(view, 36, "data");
+  view.setUint32(40, samples.length * 2, true);
+  let offset = 44;
+  for (let i = 0; i < samples.length; i++, offset += 2) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    view.setInt16(offset, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Blob([buf], { type: "audio/wav" });
+}
+
+async function splitStereoToWavBlobs(blob: Blob): Promise<{ teacher: Blob; patient: Blob }> {
+  const arrayBuf = await blob.arrayBuffer();
+  const ctx = new AudioContext();
+  const audioBuf = await ctx.decodeAudioData(arrayBuf);
+  const left = audioBuf.getChannelData(0);
+  const right = audioBuf.numberOfChannels > 1 ? audioBuf.getChannelData(1) : audioBuf.getChannelData(0);
+  await ctx.close();
+  return {
+    teacher: encodeWAV(left, audioBuf.sampleRate),
+    patient: encodeWAV(right, audioBuf.sampleRate),
+  };
+}
+
+async function callTranscribe(wavBlob: Blob, speaker: "teacher" | "patient"): Promise<string> {
+  const res = await fetch("/api/transcribe", {
+    method: "POST",
+    headers: { "Content-Type": "audio/wav", "X-Speaker": speaker },
+    body: wavBlob,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || "transcription failed");
+  return data.text as string;
+}
+
+// --- end audio utilities ---
 
 function VLUXLogo() {
   return (
@@ -115,6 +171,10 @@ export default function Home() {
   const [preRecDone, setPreRecDone] = useState(false);
   const [postRecDone, setPostRecDone] = useState(false);
   const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
+  const [preTranscript, setPreTranscript] = useState<{ teacher: string; patient: string } | null>(null);
+  const [postTranscript, setPostTranscript] = useState<{ teacher: string; patient: string } | null>(null);
+  const [isTranscribingPre, setIsTranscribingPre] = useState(false);
+  const [isTranscribingPost, setIsTranscribingPost] = useState(false);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -167,8 +227,10 @@ export default function Home() {
       mr.onstop = async () => {
         stream.getTracks().forEach((t) => t.stop());
         const blob = new Blob(chunks, { type: mimeType });
-        if (phase === "pre") { setPreRecDone(true); setIsRecordingPre(false); }
-        else { setPostRecDone(true); setIsRecordingPost(false); }
+        if (phase === "pre") { setPreRecDone(true); setIsRecordingPre(false); setIsTranscribingPre(true); }
+        else { setPostRecDone(true); setIsRecordingPost(false); setIsTranscribingPost(true); }
+
+        // ① Upload to Supabase Storage
         try {
           const ts = Date.now().toString();
           const res = await fetch("/api/audio/upload", {
@@ -190,6 +252,30 @@ export default function Home() {
           console.error("[audio] upload failed:", e);
           setAudioUploadError("録音の保存に失敗しました");
         }
+
+        // ② Split stereo → L/R WAV, transcribe in parallel
+        try {
+          const { teacher: teacherWav, patient: patientWav } = await splitStereoToWavBlobs(blob);
+          const [teacherText, patientText] = await Promise.all([
+            callTranscribe(teacherWav, "teacher"),
+            callTranscribe(patientWav, "patient"),
+          ]);
+          console.log(`[whisper][${phase}] 先生:`, teacherText);
+          console.log(`[whisper][${phase}] 患者:`, patientText);
+          const result = { teacher: teacherText, patient: patientText };
+          if (phase === "pre") {
+            setPreTranscript(result);
+            setIsTranscribingPre(false);
+          } else {
+            setPostTranscript(result);
+            setIsTranscribingPost(false);
+          }
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : "文字起こしに失敗しました。再試行してください";
+          if (phase === "pre") { setIsTranscribingPre(false); }
+          else { setIsTranscribingPost(false); }
+          setAudioUploadError(msg);
+        }
       };
       if (phase === "pre") {
         preMediaRef.current = mr;
@@ -210,6 +296,24 @@ export default function Home() {
     if (phase === "pre") preMediaRef.current?.stop();
     else postMediaRef.current?.stop();
   }, []);
+
+  // Auto-combine pre/post transcripts into the main transcript textarea
+  useEffect(() => {
+    if (!preTranscript && !postTranscript) return;
+    const parts: string[] = [];
+    if (preTranscript) {
+      parts.push("【施術前】");
+      parts.push(`先生：${preTranscript.teacher}`);
+      parts.push(`患者：${preTranscript.patient}`);
+    }
+    if (postTranscript) {
+      if (parts.length > 0) parts.push("");
+      parts.push("【施術後】");
+      parts.push(`先生：${postTranscript.teacher}`);
+      parts.push(`患者：${postTranscript.patient}`);
+    }
+    setTranscript(parts.join("\n"));
+  }, [preTranscript, postTranscript]);
 
   const loadSample = useCallback(() => {
     setTranscript(SAMPLE_CONVERSATION);
@@ -371,6 +475,10 @@ export default function Home() {
           preRecDone={preRecDone}
           postRecDone={postRecDone}
           audioUploadError={audioUploadError}
+          preTranscript={preTranscript}
+          postTranscript={postTranscript}
+          isTranscribingPre={isTranscribingPre}
+          isTranscribingPost={isTranscribingPost}
           onStartRecPhase={startRecPhase}
           onStopRecPhase={stopRecPhase}
           onLoadSample={loadSample}

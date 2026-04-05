@@ -1,0 +1,168 @@
+。じゃあWhisper API実装の指示書を作る。
+以下をそのままReplit Agentに貼り付けてください。
+
+## タスク：WhisperAPIで音声ファイルを文字起こしする
+
+### 前提
+- 録音ファイルはSupabase Storageに保存済み（pre・postの2ファイル）
+- ステレオ録音（Lチャンネル=先生、Rチャンネル=患者）
+- OpenAI APIキーを環境変数 OPENAI_API_KEY に追加する
+
+### やること
+
+---
+
+### 1. 音声ファイルをL/Rチャンネルに分割する
+
+録音停止後、以下の処理でステレオファイルを2つに分割する：
+```javascript
+async function splitStereoChannels(audioBlob) {
+  const arrayBuffer = await audioBlob.arrayBuffer();
+  const audioContext = new AudioContext();
+  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+
+  // Lチャンネル（先生）を取り出す
+  const leftChannel = audioBuffer.getChannelData(0);
+  // Rチャンネル（患者）を取り出す
+  const rightChannel = audioBuffer.numberOfChannels > 1
+    ? audioBuffer.getChannelData(1)
+    : audioBuffer.getChannelData(0);
+
+  // モノラルBufferに変換してBlobを生成する関数
+  async function channelToBlob(channelData) {
+    const monoBuffer = audioContext.createBuffer(
+      1,
+      channelData.length,
+      audioBuffer.sampleRate
+    );
+    monoBuffer.copyToChannel(channelData, 0);
+
+    // OfflineAudioContextでエンコード
+    const offlineCtx = new OfflineAudioContext(
+      1,
+      channelData.length,
+      audioBuffer.sampleRate
+    );
+    const source = offlineCtx.createBufferSource();
+    source.buffer = monoBuffer;
+    source.connect(offlineCtx.destination);
+    source.start();
+    const renderedBuffer = await offlineCtx.startRendering();
+
+    // wavに変換
+    return audioBufferToWavBlob(renderedBuffer);
+  }
+
+  const leftBlob = await channelToBlob(leftChannel);
+  const rightBlob = await channelToBlob(rightChannel);
+
+  return { leftBlob, rightBlob };
+}
+```
+
+wavへの変換には audiobuffer-to-wav ライブラリを使う。
+npm install audiobuffer-to-wav
+
+---
+
+### 2. Whisper APIを呼び出す関数を作る
+```javascript
+async function transcribeWithWhisper(audioBlob, speaker) {
+  // speakerは "teacher"（先生）または "patient"（患者）
+
+  const formData = new FormData();
+  formData.append("file", audioBlob, `${speaker}.wav`);
+  formData.append("model", "whisper-1");
+  formData.append("language", "ja");
+  formData.append("prompt",
+    "これは整骨院での施術会話です。" +
+    "九州・鹿児島・博多の方言が含まれる場合があります。" +
+    "腰痛、肩こり、しびれ、骨盤、筋肉、施術などの用語が含まれます。"
+  );
+
+  const response = await fetch(
+    "https://api.openai.com/v1/audio/transcriptions",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+      },
+      body: formData,
+    }
+  );
+
+  if (!response.ok) {
+    const error = await response.text();
+    console.error(`Whisper APIエラー（${speaker}）:`, error);
+    throw new Error(`文字起こしに失敗しました（${speaker}）`);
+  }
+
+  const data = await response.json();
+  return data.text;
+}
+```
+
+---
+
+### 3. 全体の処理フローを組み立てる
+
+録音停止後にこの順番で実行する：
+```javascript
+async function processRecording(audioBlob, recordingType) {
+  // recordingTypeは "pre"（施術前）または "post"（施術後）
+
+  try {
+    // ①チャンネル分割
+    const { leftBlob, rightBlob } = await splitStereoChannels(audioBlob);
+
+    // ②先生・患者を並列でWhisper処理（速度優先）
+    const [teacherText, patientText] = await Promise.all([
+      transcribeWithWhisper(leftBlob, "teacher"),
+      transcribeWithWhisper(rightBlob, "patient")
+    ]);
+
+    // ③結果をstateに保存
+    const result = {
+      type: recordingType,
+      teacher: teacherText,
+      patient: patientText,
+      timestamp: new Date().toISOString()
+    };
+
+    console.log(`[${recordingType}] 先生:`, teacherText);
+    console.log(`[${recordingType}] 患者:`, patientText);
+
+    return result;
+
+  } catch (error) {
+    console.error("録音処理エラー:", error);
+    // 画面にエラーを表示する
+    alert("文字起こしに失敗しました。もう一度お試しください。");
+    throw error;
+  }
+}
+```
+
+---
+
+### 4. 画面への表示
+
+文字起こし完了後、音声入力タブの
+「施術中の会話」エリアに以下の形式で表示する：
+【施術前】
+先生：〇〇〇〇〇〇
+患者：〇〇〇〇〇〇
+【施術後】
+先生：〇〇〇〇〇〇
+患者：〇〇〇〇〇〇
+
+文字起こし中は「文字起こし中...」とローディング表示する。
+
+---
+
+### やらないこと
+- AI処理（カルテ生成）はまだやらない
+- Supabaseへのテキスト保存はまだやらない
+- 他のタブは触らない
+
+Replit Agentに渡す前にOpenAI APIキーは準備できてる？
