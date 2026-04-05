@@ -105,9 +105,13 @@ interface IPadViewProps {
   onIpadTabChange: (tab: string) => void;
   transcript: string;
   onTranscriptChange: (val: string) => void;
-  isRecording: boolean;
-  onStartRec: () => void;
-  onStopRec: () => void;
+  isRecordingPre: boolean;
+  isRecordingPost: boolean;
+  preRecDone: boolean;
+  postRecDone: boolean;
+  audioUploadError: string | null;
+  onStartRecPhase: (phase: "pre" | "post") => void;
+  onStopRecPhase: (phase: "pre" | "post") => void;
   onLoadSample: () => void;
   summary: SummaryResult | null;
   isSummarizing: boolean;
@@ -141,7 +145,8 @@ const PRODUCT_ICONS: Record<string, typeof Shield> = {
 export function IPadView(props: IPadViewProps) {
   const {
     ipadTab, onIpadTabChange, transcript, onTranscriptChange,
-    isRecording, onStartRec, onStopRec, onLoadSample,
+    isRecordingPre, isRecordingPost, preRecDone, postRecDone, audioUploadError,
+    onStartRecPhase, onStopRecPhase, onLoadSample,
     summary, isSummarizing, karte, isAnalyzing, onDoKarte, karteSaved, karteVisitId,
     correlationResult, isCorrelating, onDoCorrelation,
     healthSynced, healthSyncing, onSyncHealth, onSendToPatient,
@@ -640,25 +645,78 @@ export function IPadView(props: IPadViewProps) {
             )}
 
             <p className="text-[10px] font-mono text-muted-foreground tracking-[2px] mb-2">施術中の会話（マイク入力 or テキスト入力）</p>
+
+            {/* 2-phase recording buttons */}
+            <div className="grid grid-cols-2 gap-2 mb-2.5">
+              {/* 施術前 */}
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant={isRecordingPre ? "destructive" : preRecDone ? "outline" : "default"}
+                  onClick={() => isRecordingPre ? onStopRecPhase("pre") : onStartRecPhase("pre")}
+                  disabled={isRecordingPost}
+                  className="w-full"
+                  data-testid="button-record-pre"
+                >
+                  {isRecordingPre ? (
+                    <><span className="w-2 h-2 rounded-full bg-white animate-pulse mr-1.5" /><MicOff className="w-3.5 h-3.5 mr-1" />停止</>
+                  ) : preRecDone ? (
+                    <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /><span className="text-emerald-400">施術前 完了 ✓</span></>
+                  ) : (
+                    <><Mic className="w-3.5 h-3.5 mr-1" />🎙 施術前 録音開始</>
+                  )}
+                </Button>
+                {isRecordingPre && (
+                  <div className="flex items-center gap-1.5 px-1">
+                    <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+                    <span className="text-[10px] font-mono text-destructive">REC 施術前...</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 施術後 */}
+              <div className="flex flex-col gap-1">
+                <Button
+                  variant={isRecordingPost ? "destructive" : postRecDone ? "outline" : "default"}
+                  onClick={() => isRecordingPost ? onStopRecPhase("post") : onStartRecPhase("post")}
+                  disabled={isRecordingPre}
+                  className="w-full"
+                  data-testid="button-record-post"
+                >
+                  {isRecordingPost ? (
+                    <><span className="w-2 h-2 rounded-full bg-white animate-pulse mr-1.5" /><MicOff className="w-3.5 h-3.5 mr-1" />停止</>
+                  ) : postRecDone ? (
+                    <><Check className="w-3.5 h-3.5 mr-1 text-emerald-400" /><span className="text-emerald-400">施術後 完了 ✓</span></>
+                  ) : (
+                    <><Mic className="w-3.5 h-3.5 mr-1" />🎙 施術後 録音開始</>
+                  )}
+                </Button>
+                {isRecordingPost && (
+                  <div className="flex items-center gap-1.5 px-1">
+                    <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
+                    <span className="text-[10px] font-mono text-destructive">REC 施術後...</span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Upload error */}
+            {audioUploadError && (
+              <div className="flex items-center gap-1.5 mb-2 bg-red-500/10 border border-red-500/20 rounded px-2.5 py-1.5" data-testid="text-audio-upload-error">
+                <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                <span className="text-[11px] text-red-400">{audioUploadError}</span>
+              </div>
+            )}
+
             <div className="relative">
               <Textarea
                 value={transcript}
                 onChange={e => onTranscriptChange(e.target.value)}
-                placeholder="ここに会話テキストが入ります。録音するかサンプルを読み込んでください..."
-                className={`h-[240px] resize-none text-[12px] leading-[1.8] bg-card ${isRecording ? "border-primary" : ""}`}
+                placeholder="会話テキストを手入力、またはサンプルを読み込んでください..."
+                className="h-[180px] resize-none text-[12px] leading-[1.8] bg-card"
                 data-testid="input-transcript"
               />
-              {isRecording && (
-                <div className="absolute top-2.5 right-3 flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-destructive animate-pulse" />
-                  <span className="text-[10px] font-mono text-destructive">REC</span>
-                </div>
-              )}
             </div>
-            <div className="flex gap-2 mt-2.5">
-              <Button className="flex-1" variant={isRecording ? "destructive" : "default"} onClick={isRecording ? onStopRec : onStartRec} data-testid="button-record">
-                {isRecording ? <><MicOff className="w-4 h-4" /> 録音停止</> : <><Mic className="w-4 h-4" /> 録音開始</>}
-              </Button>
+            <div className="flex gap-2 mt-2">
               <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
                 <FileText className="w-4 h-4" /> サンプル読込
               </Button>
@@ -667,12 +725,12 @@ export function IPadView(props: IPadViewProps) {
               className="w-full mt-2.5"
               size="lg"
               onClick={onDoKarte}
-              disabled={isAnalyzing || !transcript.trim()}
+              disabled={isAnalyzing || !(preRecDone && postRecDone) && !transcript.trim()}
               data-testid="button-generate-karte"
             >
               {isAnalyzing
                 ? <><Loader2 className="w-4 h-4 animate-spin" /> カルテ生成中...</>
-                : <><Zap className="w-4 h-4" /> AIカルテを生成</>
+                : <><Zap className="w-4 h-4" /> {preRecDone && postRecDone ? "正式カルテ＋商品推薦を生成" : "AIカルテを生成"}</>
               }
             </Button>
             {karteSaved && (

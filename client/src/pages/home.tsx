@@ -110,7 +110,11 @@ export default function Home() {
   const [healthSyncing, setHealthSyncing] = useState(false);
 
   const [transcript, setTranscript] = useState("");
-  const [isRecording, setIsRecording] = useState(false);
+  const [isRecordingPre, setIsRecordingPre] = useState(false);
+  const [isRecordingPost, setIsRecordingPost] = useState(false);
+  const [preRecDone, setPreRecDone] = useState(false);
+  const [postRecDone, setPostRecDone] = useState(false);
+  const [audioUploadError, setAudioUploadError] = useState<string | null>(null);
   const [isSummarizing, setIsSummarizing] = useState(false);
   const [summary, setSummary] = useState<SummaryResult | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
@@ -127,8 +131,9 @@ export default function Home() {
   const [selectedClinicId, setSelectedClinicId] = useState<string | null>(null);
   const [staffName, setStaffName] = useState<string>("院長 山田");
 
-  const recRef = useRef<SpeechRecognition | null>(null);
   const tRef = useRef("");
+  const preMediaRef = useRef<MediaRecorder | null>(null);
+  const postMediaRef = useRef<MediaRecorder | null>(null);
 
   const doSummarize = useCallback(async (text: string) => {
     setIsSummarizing(true);
@@ -143,47 +148,68 @@ export default function Home() {
     setIsSummarizing(false);
   }, []);
 
-  const startRec = useCallback(() => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) {
-      alert("Chrome または Safari をご利用ください（音声認識が必要）");
-      return;
-    }
-    const r = new SR();
-    r.lang = "ja-JP";
-    r.continuous = true;
-    r.interimResults = true;
-    tRef.current = transcript;
-    r.onresult = (e: SpeechRecognitionEvent) => {
-      let fin = tRef.current;
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        if (e.results[i].isFinal) {
-          fin += e.results[i][0].transcript;
-          tRef.current = fin;
-        } else {
-          interim = e.results[i][0].transcript;
+  const startRecPhase = useCallback(async (phase: "pre" | "post") => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 2,
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm")
+        ? "audio/webm"
+        : "audio/mp4";
+      const mr = new MediaRecorder(stream, { mimeType });
+      const chunks: BlobPart[] = [];
+      mr.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(chunks, { type: mimeType });
+        if (phase === "pre") { setPreRecDone(true); setIsRecordingPre(false); }
+        else { setPostRecDone(true); setIsRecordingPost(false); }
+        try {
+          const ts = Date.now().toString();
+          const res = await fetch("/api/audio/upload", {
+            method: "POST",
+            headers: {
+              "Content-Type": mimeType,
+              "X-Phase": phase,
+              "X-Clinic-Id": selectedClinicId || "unknown",
+              "X-Patient-Id": selectedPatientId || "unknown",
+              "X-Timestamp": ts,
+            },
+            body: blob,
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || "upload failed");
+          console.log("[audio] uploaded:", data.url);
+          setAudioUploadError(null);
+        } catch (e) {
+          console.error("[audio] upload failed:", e);
+          setAudioUploadError("録音の保存に失敗しました");
         }
+      };
+      if (phase === "pre") {
+        preMediaRef.current = mr;
+        setIsRecordingPre(true);
+        setPreRecDone(false);
+      } else {
+        postMediaRef.current = mr;
+        setIsRecordingPost(true);
+        setPostRecDone(false);
       }
-      setTranscript(fin + (interim ? `【${interim}】` : ""));
-    };
-    r.onerror = () => {
-      recRef.current?.stop();
-      setIsRecording(false);
-    };
-    r.onend = () => setIsRecording(false);
-    recRef.current = r;
-    r.start();
-    setIsRecording(true);
-  }, [transcript]);
+      mr.start();
+    } catch {
+      alert("マイクへのアクセスが必要です。ブラウザの設定を確認してください。");
+    }
+  }, [selectedClinicId, selectedPatientId]);
 
-  const stopRec = useCallback(() => {
-    recRef.current?.stop();
-    setIsRecording(false);
-    const clean = tRef.current.replace(/【.*?】/g, "").trim();
-    setTranscript(clean);
-    if (clean.length > 20) doSummarize(clean);
-  }, [doSummarize]);
+  const stopRecPhase = useCallback((phase: "pre" | "post") => {
+    if (phase === "pre") preMediaRef.current?.stop();
+    else postMediaRef.current?.stop();
+  }, []);
 
   const loadSample = useCallback(() => {
     setTranscript(SAMPLE_CONVERSATION);
@@ -340,9 +366,13 @@ export default function Home() {
           onIpadTabChange={setIpadTab}
           transcript={transcript}
           onTranscriptChange={(val) => { setTranscript(val); tRef.current = val; }}
-          isRecording={isRecording}
-          onStartRec={startRec}
-          onStopRec={stopRec}
+          isRecordingPre={isRecordingPre}
+          isRecordingPost={isRecordingPost}
+          preRecDone={preRecDone}
+          postRecDone={postRecDone}
+          audioUploadError={audioUploadError}
+          onStartRecPhase={startRecPhase}
+          onStopRecPhase={stopRecPhase}
           onLoadSample={loadSample}
           summary={summary}
           isSummarizing={isSummarizing}

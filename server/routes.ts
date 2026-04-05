@@ -163,6 +163,73 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
 
+  // Ensure audio-recordings bucket exists
+  (async () => {
+    try {
+      const admin = getSupabaseAdmin();
+      const { data: buckets } = await admin.storage.listBuckets();
+      const exists = buckets?.some(b => b.name === "audio-recordings");
+      if (!exists) {
+        await admin.storage.createBucket("audio-recordings", { public: false });
+        console.log("[storage] audio-recordings bucket created");
+      }
+    } catch (e) {
+      console.warn("[storage] bucket init error:", e);
+    }
+  })();
+
+  // Audio upload endpoint (receives raw binary, uploads to Supabase Storage)
+  app.post(
+    "/api/audio/upload",
+    (req, res, next) => {
+      // collect raw body as Buffer
+      const chunks: Buffer[] = [];
+      req.on("data", (chunk: Buffer) => chunks.push(chunk));
+      req.on("end", () => {
+        (req as any).rawBody = Buffer.concat(chunks);
+        next();
+      });
+      req.on("error", next);
+    },
+    async (req, res) => {
+      try {
+        const phase = (req.headers["x-phase"] as string) || "pre";
+        const clinicId = (req.headers["x-clinic-id"] as string) || "unknown";
+        const patientId = (req.headers["x-patient-id"] as string) || "unknown";
+        const timestamp = (req.headers["x-timestamp"] as string) || Date.now().toString();
+        const contentType = req.headers["content-type"] || "audio/webm";
+        const ext = contentType.includes("mp4") ? "mp4" : "webm";
+
+        const filePath = `${clinicId}/${patientId}/${phase}_${timestamp}.${ext}`;
+        const body = (req as any).rawBody as Buffer;
+
+        if (!body || body.length === 0) {
+          return res.status(400).json({ error: "Empty audio body" });
+        }
+
+        const admin = getSupabaseAdmin();
+        const { data, error } = await admin.storage
+          .from("audio-recordings")
+          .upload(filePath, body, { contentType, upsert: true });
+
+        if (error) {
+          console.error("[storage] upload error:", error.message);
+          return res.status(500).json({ error: error.message });
+        }
+
+        const { data: urlData } = admin.storage
+          .from("audio-recordings")
+          .getPublicUrl(filePath);
+
+        console.log("[storage] audio uploaded:", filePath, urlData?.publicUrl);
+        res.json({ path: data.path, url: urlData?.publicUrl });
+      } catch (e) {
+        console.error("[storage] upload exception:", e);
+        res.status(500).json({ error: String(e) });
+      }
+    }
+  );
+
   app.post("/api/summarize", async (req, res) => {
     try {
       if (!checkRateLimit(req.ip || "unknown")) {
