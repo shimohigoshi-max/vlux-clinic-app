@@ -1,9 +1,18 @@
-import type { Express } from "express";
+import type { Express, Request } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { getSupabaseAdmin } from "./supabase";
 import twilio from "twilio";
+
+// Augment express-session to include Google Fit token fields
+declare module "express-session" {
+  interface SessionData {
+    googleAccessToken?: string;
+    googleRefreshToken?: string;
+    googleTokenExpiry?: number; // unix ms
+  }
+}
 
 const anthropic = new Anthropic({
   apiKey: process.env.AI_INTEGRATIONS_ANTHROPIC_API_KEY,
@@ -1133,6 +1142,191 @@ scoreは0〜100の整数値で出力してください。`,
       console.error("Seed error:", e);
       res.status(500).json({ error: String(e) });
     }
+  });
+
+  // ── Google OAuth helpers ─────────────────────────────────────────────
+  function getGoogleRedirectUri(req: Request): string {
+    // Production uses the canonical domain; dev uses the Replit domain
+    const prodUri = "https://app.vlux.health/auth/google/callback";
+    if (process.env.NODE_ENV === "production") return prodUri;
+    const proto = req.headers["x-forwarded-proto"] || req.protocol || "https";
+    const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost:5000";
+    return `${proto}://${host}/auth/google/callback`;
+  }
+
+  async function refreshGoogleToken(refreshToken: string): Promise<{ access_token: string; expires_in: number } | null> {
+    try {
+      const res = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+          refresh_token: refreshToken,
+          grant_type: "refresh_token",
+        }).toString(),
+      });
+      if (!res.ok) return null;
+      return res.json() as Promise<{ access_token: string; expires_in: number }>;
+    } catch {
+      return null;
+    }
+  }
+
+  // GET /auth/google — redirect to Google consent screen
+  app.get("/auth/google", (req, res) => {
+    const clientId = process.env.GOOGLE_CLIENT_ID;
+    if (!clientId) return res.status(500).send("GOOGLE_CLIENT_ID not configured");
+    const redirectUri = encodeURIComponent(getGoogleRedirectUri(req));
+    const scopes = encodeURIComponent([
+      "https://www.googleapis.com/auth/fitness.activity.read",
+      "https://www.googleapis.com/auth/fitness.heart_rate.read",
+      "https://www.googleapis.com/auth/fitness.sleep.read",
+    ].join(" "));
+    const url = `https://accounts.google.com/o/oauth2/v2/auth` +
+      `?client_id=${clientId}` +
+      `&redirect_uri=${redirectUri}` +
+      `&response_type=code` +
+      `&scope=${scopes}` +
+      `&access_type=offline` +
+      `&prompt=consent`;
+    res.redirect(url);
+  });
+
+  // GET /auth/google/callback — exchange code for tokens
+  app.get("/auth/google/callback", async (req, res) => {
+    const { code, error } = req.query as { code?: string; error?: string };
+    if (error || !code) {
+      console.error("[google-oauth] callback error:", error);
+      return res.redirect("/?google_fit=error");
+    }
+    try {
+      const tokenRes = await fetch("https://oauth2.googleapis.com/token", {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          code,
+          client_id: process.env.GOOGLE_CLIENT_ID!,
+          client_secret: process.env.GOOGLE_CLIENT_SECRET!,
+          redirect_uri: getGoogleRedirectUri(req),
+          grant_type: "authorization_code",
+        }).toString(),
+      });
+      if (!tokenRes.ok) {
+        console.error("[google-oauth] token exchange failed:", await tokenRes.text());
+        return res.redirect("/?google_fit=error");
+      }
+      const tokens = await tokenRes.json() as { access_token: string; refresh_token?: string; expires_in: number };
+      req.session.googleAccessToken = tokens.access_token;
+      if (tokens.refresh_token) req.session.googleRefreshToken = tokens.refresh_token;
+      req.session.googleTokenExpiry = Date.now() + tokens.expires_in * 1000;
+      console.log("[google-oauth] tokens stored in session");
+      res.redirect("/?google_fit=success");
+    } catch (e) {
+      console.error("[google-oauth] exception:", e);
+      res.redirect("/?google_fit=error");
+    }
+  });
+
+  // GET /api/google-fit/status — check if connected
+  app.get("/api/google-fit/status", (req, res) => {
+    const connected = !!req.session.googleAccessToken;
+    res.json({ connected });
+  });
+
+  // GET /api/google-fit/data — fetch steps, sleep, heartRate for past 7 days
+  app.get("/api/google-fit/data", async (req, res) => {
+    let accessToken = req.session.googleAccessToken;
+    const refreshToken = req.session.googleRefreshToken;
+    const expiry = req.session.googleTokenExpiry ?? 0;
+
+    if (!accessToken) {
+      return res.status(401).json({ error: "未連携。/auth/google から認証してください" });
+    }
+
+    // Refresh if token is close to expiry (< 2 min)
+    if (Date.now() > expiry - 120_000 && refreshToken) {
+      const refreshed = await refreshGoogleToken(refreshToken);
+      if (refreshed) {
+        accessToken = refreshed.access_token;
+        req.session.googleAccessToken = accessToken;
+        req.session.googleTokenExpiry = Date.now() + refreshed.expires_in * 1000;
+      } else {
+        // Refresh failed — clear session and ask re-auth
+        delete req.session.googleAccessToken;
+        delete req.session.googleRefreshToken;
+        return res.status(401).json({ error: "トークンが期限切れです。再度連携してください" });
+      }
+    }
+
+    const now = Date.now();
+    const weekMs = 7 * 24 * 60 * 60 * 1000;
+
+    const fitBody = {
+      aggregateBy: [
+        { dataTypeName: "com.google.step_count.delta" },
+        { dataTypeName: "com.google.heart_rate.bpm" },
+        { dataTypeName: "com.google.sleep.segment" },
+      ],
+      bucketByTime: { durationMillis: 86400000 },
+      startTimeMillis: now - weekMs,
+      endTimeMillis: now,
+    };
+
+    try {
+      const fitRes = await fetch("https://www.googleapis.com/fitness/v1/users/me/dataset:aggregate", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(fitBody),
+      });
+
+      if (!fitRes.ok) {
+        const errText = await fitRes.text();
+        console.error("[google-fit] data fetch error:", errText);
+        if (fitRes.status === 401) {
+          delete req.session.googleAccessToken;
+          return res.status(401).json({ error: "トークンが期限切れです。再度連携してください" });
+        }
+        return res.status(500).json({ error: "データの取得に失敗しました" });
+      }
+
+      const fitData = await fitRes.json() as { bucket: Record<string, unknown>[] };
+      const getVal = (bucket: Record<string, unknown>, idx: number): number => {
+        const ds = (bucket.dataset as Record<string, unknown>[])?.[idx];
+        const pts = (ds as { point?: { value?: { intVal?: number; fpVal?: number }[] }[] })?.point ?? [];
+        return pts.reduce((sum: number, p) => sum + (p.value?.[0]?.intVal ?? p.value?.[0]?.fpVal ?? 0), 0);
+      };
+
+      const steps: { date: string; steps: number }[] = [];
+      const sleep: { date: string; duration: number }[] = [];
+      const heartRate: { date: string; bpm: number }[] = [];
+
+      for (const bucket of fitData.bucket ?? []) {
+        const d = new Date(Number(bucket.startTimeMillis));
+        const date = `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, "0")}/${String(d.getDate()).padStart(2, "0")}`;
+        const stepVal = Math.round(getVal(bucket, 0));
+        const hrVal = Math.round(getVal(bucket, 1));
+        const sleepMs = getVal(bucket, 2); // ms in segment format
+        const sleepH = Math.round((sleepMs / 60000 / 60) * 10) / 10;
+        if (stepVal > 0) steps.push({ date, steps: stepVal });
+        if (hrVal > 0) heartRate.push({ date, bpm: hrVal });
+        if (sleepH > 0) sleep.push({ date, duration: sleepH });
+      }
+
+      console.log(`[google-fit] fetched: ${steps.length} step days, ${sleep.length} sleep days, ${heartRate.length} HR days`);
+      res.json({ steps, sleep, heartRate });
+    } catch (e) {
+      console.error("[google-fit] exception:", e);
+      res.status(500).json({ error: "データの取得に失敗しました" });
+    }
+  });
+
+  // DELETE /api/google-fit/disconnect — clear session tokens
+  app.delete("/api/google-fit/disconnect", (req, res) => {
+    delete req.session.googleAccessToken;
+    delete req.session.googleRefreshToken;
+    delete req.session.googleTokenExpiry;
+    res.json({ ok: true });
   });
 
   return httpServer;

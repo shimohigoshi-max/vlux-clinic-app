@@ -17,7 +17,7 @@ import {
   CLINIC_MASTER,
   statusColor, statusBg,
 } from "@/lib/constants";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 
@@ -83,6 +83,20 @@ export function SmartphoneView({
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
 
+  // Google Fit server-side OAuth state
+  const [googleFitData, setGoogleFitData] = useState<{
+    steps: { date: string; steps: number }[];
+    sleep: { date: string; duration: number }[];
+    heartRate: { date: string; bpm: number }[];
+  } | null>(null);
+  const [googleFitFetching, setGoogleFitFetching] = useState(false);
+  const [googleFitError, setGoogleFitError] = useState<string | null>(null);
+
+  // Detect Android / iOS from user-agent
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  const isAndroid = /android/i.test(ua);
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+
   const { data: profile } = useQuery<PatientProfile>({
     queryKey: ["/api/patient/profile"],
     staleTime: 30000,
@@ -122,6 +136,46 @@ export function SmartphoneView({
     window.addEventListener("appinstalled", handler);
     return () => window.removeEventListener("appinstalled", handler);
   }, [profile?.id, profile?.clinic_id]);
+
+  // Fetch Google Fit data from backend
+  const fetchGoogleFitData = useCallback(async () => {
+    setGoogleFitFetching(true);
+    setGoogleFitError(null);
+    try {
+      const res = await fetch("/api/google-fit/data");
+      if (res.status === 401) {
+        const { error } = await res.json();
+        setGoogleFitError(error || "トークンが期限切れです。再度連携してください");
+        setConnectedSource(null);
+        setGoogleFitData(null);
+        return;
+      }
+      if (!res.ok) throw new Error("データの取得に失敗しました");
+      const data = await res.json();
+      setGoogleFitData(data);
+      setConnectedSource("googlefit");
+      setLastSyncTime(new Date());
+    } catch {
+      setGoogleFitError("データの取得に失敗しました");
+    } finally {
+      setGoogleFitFetching(false);
+    }
+  }, []);
+
+  // Detect Google OAuth callback result via URL param
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const gfit = params.get("google_fit");
+    if (gfit === "success") {
+      // Clean URL
+      window.history.replaceState({}, "", window.location.pathname);
+      fetchGoogleFitData();
+    } else if (gfit === "error") {
+      window.history.replaceState({}, "", window.location.pathname);
+      setGoogleFitError("Google Fitの連携に失敗しました。再試行してください");
+      setTimeout(() => setGoogleFitError(null), 5000);
+    }
+  }, [fetchGoogleFitData]);
 
   // ── HealthKit / Google Fit / Mock sync ───────────────────────────
   const buildMockRecords = () => {
@@ -198,31 +252,8 @@ export function SmartphoneView({
   };
 
   const connectGoogleFit = () => {
-    const clientId = import.meta.env.VITE_GOOGLE_FIT_CLIENT_ID;
-    if (!clientId) {
-      // 未設定 → モックデータで動作確認
-      doSync("mock", buildMockRecords());
-      setSyncMessage("Google Fit Client IDが未設定のためモックデータで同期しました");
-      setTimeout(() => setSyncMessage(null), 4000);
-      return;
-    }
-    const redirectUri = encodeURIComponent(window.location.origin + "/oauth/callback");
-    const scopes = encodeURIComponent([
-      "https://www.googleapis.com/auth/fitness.activity.read",
-      "https://www.googleapis.com/auth/fitness.heart_rate.read",
-      "https://www.googleapis.com/auth/fitness.sleep.read",
-    ].join(" "));
-    const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=token&scope=${scopes}`;
-    const popup = window.open(authUrl, "google_fit", "width=600,height=700");
-    const listener = (e: MessageEvent) => {
-      if (e.origin !== window.location.origin) return;
-      if (e.data?.type === "google_fit_token" && e.data?.token) {
-        window.removeEventListener("message", listener);
-        popup?.close();
-        doGoogleFitFetch(e.data.token);
-      }
-    };
-    window.addEventListener("message", listener);
+    // Redirect to server-side OAuth flow
+    window.location.href = "/auth/google";
   };
 
   const doGoogleFitFetch = async (accessToken: string) => {
@@ -566,21 +597,37 @@ export function SmartphoneView({
                       </div>
                       <ChevronRight className="w-4 h-4 text-muted-foreground" />
                     </button>
-                    <button
-                      className="w-full flex items-center gap-3 bg-card border border-border rounded-xl p-3.5 hover:border-primary/50 transition-colors text-left"
-                      onClick={connectGoogleFit}
-                      disabled={isSyncing}
-                      data-testid="button-connect-googlefit"
-                    >
-                      <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
-                        <Activity className="w-4 h-4 text-blue-400" />
+                    {/* Google Fit — Android active, iOS disabled */}
+                    {isIOS ? (
+                      <div className="w-full flex items-center gap-3 bg-muted/30 border border-border/50 rounded-xl p-3.5 opacity-50 cursor-not-allowed" data-testid="button-connect-googlefit-ios">
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 flex items-center justify-center shrink-0">
+                          <Activity className="w-4 h-4 text-blue-400/50" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[12px] font-semibold text-muted-foreground">Google Fit</p>
+                          <p className="text-[10px] text-muted-foreground/60">iPhone連携は近日対応予定</p>
+                        </div>
                       </div>
-                      <div className="flex-1">
-                        <p className="text-[12px] font-semibold text-foreground">Google Fit</p>
-                        <p className="text-[10px] text-muted-foreground">Android対応</p>
-                      </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </button>
+                    ) : (
+                      <button
+                        className="w-full flex items-center gap-3 bg-card border border-border rounded-xl p-3.5 hover:border-blue-500/50 transition-colors text-left"
+                        onClick={connectGoogleFit}
+                        disabled={isSyncing || googleFitFetching}
+                        data-testid="button-connect-googlefit"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+                          <Activity className="w-4 h-4 text-blue-400" />
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-[12px] font-semibold text-foreground">Google Fit</p>
+                          <p className="text-[10px] text-muted-foreground">Android対応 · Googleアカウントで連携</p>
+                        </div>
+                        {googleFitFetching
+                          ? <Loader2 className="w-4 h-4 text-blue-400 animate-spin" />
+                          : <ChevronRight className="w-4 h-4 text-muted-foreground" />
+                        }
+                      </button>
+                    )}
                     <div className="border-t border-border pt-2">
                       <Button
                         size="sm"
@@ -616,10 +663,100 @@ export function SmartphoneView({
                   </div>
                 )}
 
+                {/* ── Google Fit エラー ── */}
+                {googleFitError && (
+                  <div className="flex items-center gap-2 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2" data-testid="text-googlefit-error">
+                    <AlertCircle className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                    <span className="text-[11px] text-red-400">{googleFitError}</span>
+                  </div>
+                )}
+
                 {/* ── 同期メッセージ ── */}
                 {syncMessage && (
                   <div className={`text-[11px] text-center py-1.5 rounded-md ${syncMessage.includes("失敗") ? "bg-red-500/10 text-red-400" : "bg-emerald-500/10 text-emerald-400"}`} data-testid="text-sync-message">
                     {syncMessage}
+                  </div>
+                )}
+
+                {/* ── Google Fit データ表示 ── */}
+                {googleFitFetching && (
+                  <div className="flex items-center justify-center py-6 gap-2" data-testid="googlefit-loading">
+                    <Loader2 className="w-4 h-4 animate-spin text-blue-400" />
+                    <span className="text-[12px] text-muted-foreground">Google Fit データ取得中...</span>
+                  </div>
+                )}
+                {!googleFitFetching && googleFitData && connectedSource === "googlefit" && (
+                  <div className="space-y-3" data-testid="panel-googlefit-data">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[9px] font-mono text-blue-400 tracking-[2px]">GOOGLE FIT · 過去7日間</p>
+                      <div className="flex items-center gap-2">
+                        {lastSyncTime && <span className="text-[9px] text-muted-foreground">最終同期: {formatLastSync(lastSyncTime)}</span>}
+                        <button onClick={fetchGoogleFitData} className="text-[9px] text-blue-400 hover:text-blue-300" data-testid="button-googlefit-refresh">
+                          <RefreshCw className="w-3 h-3" />
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* 歩数 */}
+                    {googleFitData.steps.length > 0 && (
+                      <div>
+                        <p className="text-[9px] text-muted-foreground tracking-[2px] mb-1.5">歩数</p>
+                        <div className="grid grid-cols-7 gap-1">
+                          {googleFitData.steps.map((d, i) => {
+                            const pct = Math.min((d.steps / 8000) * 100, 100);
+                            return (
+                              <div key={i} className="flex flex-col items-center gap-0.5">
+                                <div className="w-full h-12 bg-border/30 rounded-sm relative overflow-hidden">
+                                  <div className={`absolute bottom-0 w-full rounded-sm ${d.steps >= 5000 ? "bg-emerald-400" : d.steps >= 2000 ? "bg-amber-400" : "bg-red-400"}`} style={{ height: `${pct}%` }} />
+                                </div>
+                                <span className="text-[7px] text-muted-foreground/60 font-mono">{d.steps >= 1000 ? (d.steps / 1000).toFixed(1) + "k" : d.steps}</span>
+                                <span className="text-[7px] text-muted-foreground/40">{d.date.slice(5)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 睡眠・心拍 */}
+                    <div className="grid grid-cols-2 gap-2">
+                      {googleFitData.sleep.length > 0 && (
+                        <div className="bg-card border border-border rounded-md p-2.5" data-testid="googlefit-sleep">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                            <p className="text-[9px] text-muted-foreground">睡眠（直近）</p>
+                          </div>
+                          <p className="font-mono text-sm font-bold text-indigo-400">
+                            {googleFitData.sleep[googleFitData.sleep.length - 1].duration}h
+                          </p>
+                        </div>
+                      )}
+                      {googleFitData.heartRate.length > 0 && (
+                        <div className="bg-card border border-border rounded-md p-2.5" data-testid="googlefit-heartrate">
+                          <div className="flex items-center gap-1.5 mb-1">
+                            <Heart className="w-3.5 h-3.5 text-red-400" />
+                            <p className="text-[9px] text-muted-foreground">心拍（直近）</p>
+                          </div>
+                          <p className="font-mono text-sm font-bold text-red-400">
+                            {googleFitData.heartRate[googleFitData.heartRate.length - 1].bpm} bpm
+                          </p>
+                        </div>
+                      )}
+                    </div>
+
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="w-full text-[10px] text-muted-foreground/60 border border-dashed border-muted-foreground/20"
+                      onClick={async () => {
+                        await fetch("/api/google-fit/disconnect", { method: "DELETE" });
+                        setConnectedSource(null);
+                        setGoogleFitData(null);
+                      }}
+                      data-testid="button-googlefit-disconnect"
+                    >
+                      Google Fit 連携を解除する
+                    </Button>
                   </div>
                 )}
 
