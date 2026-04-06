@@ -946,6 +946,49 @@ export function IPadView(props: IPadViewProps) {
                   </div>
                 </div>
               </div>
+              {/* SOAP + 5-axis read-only display */}
+              {(editedKarte.subjective || editedKarte.objective || editedKarte.plan || editedKarte.treatment_summary || editedKarte.advice_5axis || editedKarte.next_visit_note) && (
+                <div className="mx-4 mb-4 border border-primary/15 rounded-md bg-primary/3 p-3.5 space-y-3" data-testid="panel-soap-5axis">
+                  <p className="text-[9px] font-mono text-primary tracking-[3px] border-b border-primary/15 pb-1.5">AI要点整理（自動）</p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div className="space-y-2.5">
+                      {([
+                        ["S — 自覚症状", editedKarte.subjective],
+                        ["O — 所見", editedKarte.objective],
+                        ["A — 見立て", editedKarte.assessment],
+                        ["P — 施術方針", editedKarte.plan],
+                        ["本日の施術内容", editedKarte.treatment_summary],
+                        ["次回確認事項", editedKarte.next_visit_note],
+                      ] as [string, string | undefined][]).map(([label, val]) => val ? (
+                        <div key={label}>
+                          <p className="text-[9px] font-mono text-primary/60 tracking-[2px] mb-0.5">{label}</p>
+                          <p className="text-[11px] text-foreground/70 leading-relaxed">{val}</p>
+                        </div>
+                      ) : null)}
+                    </div>
+                    {editedKarte.advice_5axis && Object.values(editedKarte.advice_5axis).some(v => v) && (
+                      <div>
+                        <p className="text-[9px] font-mono text-amber-400/70 tracking-[2px] mb-1.5">5軸アドバイス</p>
+                        <div className="space-y-1.5">
+                          {([
+                            ["🏃 運動", editedKarte.advice_5axis.exercise],
+                            ["😴 睡眠", editedKarte.advice_5axis.sleep],
+                            ["🥗 栄養", editedKarte.advice_5axis.nutrition],
+                            ["🌿 生活習慣", editedKarte.advice_5axis.lifestyle],
+                            ["🧘 メンタル", editedKarte.advice_5axis.mental],
+                          ] as [string, string | undefined][]).map(([label, val]) => val ? (
+                            <div key={label} className="flex items-start gap-2">
+                              <span className="text-[10px] text-amber-400/80 shrink-0 w-[72px] font-mono leading-relaxed">{label}</span>
+                              <span className="text-[11px] text-foreground/60 leading-relaxed">{val}</span>
+                            </div>
+                          ) : null)}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
               <div className="px-4 pb-4 flex items-center gap-3">
                 <Button
                   onClick={saveEditedKarte}
@@ -1804,11 +1847,15 @@ function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteH
                   <div className="px-4 pb-4 animate-slide-up">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="space-y-3">
-                        <p className="text-[9px] font-mono text-primary tracking-[3px] border-b border-primary/20 pb-1">正式カルテ</p>
+                        <p className="text-[9px] font-mono text-primary tracking-[3px] border-b border-primary/20 pb-1">正式カルテ (SOAP)</p>
                         {([
                           ["主訴", k.chief_complaint],
-                          ["見立て", k.assessment],
-                          ["施術方針", k.treatment_plan],
+                          ["S — 自覚症状", k.subjective],
+                          ["O — 所見", k.objective],
+                          ["A — 見立て", k.assessment || k.treatment_plan],
+                          ["P — 施術方針", k.plan],
+                          ["本日の施術", k.treatment_summary],
+                          ["次回確認事項", k.next_visit_note],
                           ["次回来院", k.follow_up],
                         ] as [string, string | undefined][]).map(([label, val]) => val ? (
                           <div key={label}>
@@ -1816,7 +1863,26 @@ function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteH
                             <p className="text-[12px] text-foreground/70 leading-relaxed whitespace-pre-line">{val}</p>
                           </div>
                         ) : null)}
-                        {k.lifestyle_advice && k.lifestyle_advice.length > 0 && (
+                        {k.advice_5axis && Object.values(k.advice_5axis).some(v => v) && (
+                          <div>
+                            <p className="text-[9px] font-mono text-amber-400/70 tracking-[2px] mb-1.5">5軸アドバイス</p>
+                            <div className="space-y-1.5">
+                              {([
+                                ["🏃 運動", k.advice_5axis.exercise],
+                                ["😴 睡眠", k.advice_5axis.sleep],
+                                ["🥗 栄養", k.advice_5axis.nutrition],
+                                ["🌿 生活習慣", k.advice_5axis.lifestyle],
+                                ["🧘 メンタル", k.advice_5axis.mental],
+                              ] as [string, string | undefined][]).map(([label, val]) => val ? (
+                                <div key={label} className="flex items-start gap-2">
+                                  <span className="text-[10px] text-amber-400/80 shrink-0 font-mono w-20">{label}</span>
+                                  <span className="text-[11px] text-foreground/60 leading-relaxed">{val}</span>
+                                </div>
+                              ) : null)}
+                            </div>
+                          </div>
+                        )}
+                        {k.lifestyle_advice && k.lifestyle_advice.length > 0 && !k.advice_5axis && (
                           <div>
                             <p className="text-[9px] font-mono text-amber-400/70 tracking-[2px] mb-0.5">生活アドバイス</p>
                             {k.lifestyle_advice.map((a, i) => (

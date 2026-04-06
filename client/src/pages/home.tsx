@@ -338,6 +338,12 @@ export default function Home() {
         ...(selectedPatientId ? { patient_id: selectedPatientId } : {}),
         ...(selectedClinicId ? { clinic_id: selectedClinicId } : {}),
         products: DEMO_PRODUCTS.map(p => ({ id: p.id, name: p.name, desc: p.desc })),
+        ...(preTranscript || postTranscript ? {
+          structured_transcripts: {
+            ...(preTranscript ? { pre: preTranscript } : {}),
+            ...(postTranscript ? { post: postTranscript } : {}),
+          }
+        } : {}),
       });
       const data = await res.json();
       setKarte(data);

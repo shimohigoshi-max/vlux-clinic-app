@@ -1,0 +1,210 @@
+## タスク：Haiku→SonnetでAIカルテを生成する
+
+### 前提
+- Whisperで文字起こし済みのテキストがある
+- 形式：施術前（先生テキスト・患者テキスト）、施術後（先生テキスト・患者テキスト）
+- Anthropic APIキーを環境変数 ANTHROPIC_API_KEY に追加する
+
+### やること
+
+---
+
+### 1. 環境変数を追加する
+.envファイルに以下を追加する：
+ANTHROPIC_API_KEY=ここにAnthropicのAPIキーを入れる
+
+---
+
+### 2. ステップ1：Haikuで構造化JSONを生成する
+```javascript
+async function extractStructuredData(transcripts) {
+  // transcriptsは以下の形式：
+  // {
+  //   pre: { teacher: "...", patient: "..." },
+  //   post: { teacher: "...", patient: "..." }
+  // }
+
+  const prompt = `
+以下は整骨院での施術前後の会話テキストです。
+九州・鹿児島・博多方言が含まれる場合があります。
+方言は標準語の意味に補完してください。
+例：こわい→疲れた、いたか→痛い、だるか→だるい、ばい→だよ
+
+【施術前：先生】
+${transcripts.pre.teacher}
+
+【施術前：患者】
+${transcripts.pre.patient}
+
+【施術後：先生】
+${transcripts.post.teacher}
+
+【施術後：患者】
+${transcripts.post.patient}
+
+上記の会話から以下のJSONを抽出してください。
+情報が不明な場合は "不明" と入れてください。
+雑談・脱線は無視してください。
+JSONのみを返してください。前置きや説明は不要です。
+
+{
+  "symptoms": [],
+  "body_parts": [],
+  "severity": "",
+  "onset": "",
+  "possible_causes": [],
+  "treatment_done": "",
+  "teacher_notes": ""
+}
+`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: "claude-haiku-4-5-20251001",
+      max_tokens: 1000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("Haiku APIエラー: " + await response.text());
+  }
+
+  const data = await response.json();
+  const text = data.content[0].text;
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    console.error("JSON解析エラー:", text);
+    throw new Error("構造化データの解析に失敗しました");
+  }
+}
+```
+
+---
+
+### 3. ステップ2：SonnetでSOAPカルテを生成する
+```javascript
+async function generateMedicalRecord(structuredData) {
+
+  const prompt = `
+あなたは整骨院のAIカルテ生成アシスタントです。
+以下の構造化データからSOAP形式のカルテと5軸アドバイスを生成してください。
+
+【入力データ】
+${JSON.stringify(structuredData, null, 2)}
+
+【重要なルール】
+- 九州・鹿児島・博多方言が混入している場合は標準語に補完する
+- 整骨院のスコープ内（肩こり・腰痛・筋肉疲労等）で記述する
+- 個人を特定できる情報は含めない
+- 情報が少なくても必ずJSONを返す
+- 不明な項目は「情報なし」と記載する
+- JSONのみを返す。前置きや説明は不要
+
+{
+  "chief_complaint": "主訴",
+  "subjective": "患者の訴え・自覚症状",
+  "objective": "施術者の所見・確認事項",
+  "assessment": "施術者の見立て",
+  "plan": "今後の施術方針",
+  "treatment_summary": "本日の施術内容",
+  "advice_5axis": {
+    "exercise": "運動アドバイス",
+    "sleep": "睡眠アドバイス",
+    "nutrition": "栄養アドバイス",
+    "lifestyle": "生活習慣アドバイス",
+    "mental": "メンタルアドバイス"
+  },
+  "next_visit_note": "次回来院時の確認事項",
+  "risk_flags": []
+}
+`;
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": process.env.ANTHROPIC_API_KEY,
+      "anthropic-version": "2023-06-01"
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-4-6",
+      max_tokens: 2000,
+      messages: [{ role: "user", content: prompt }]
+    })
+  });
+
+  if (!response.ok) {
+    throw new Error("Sonnet APIエラー: " + await response.text());
+  }
+
+  const data = await response.json();
+  const text = data.content[0].text;
+
+  try {
+    const clean = text.replace(/```json|```/g, "").trim();
+    return JSON.parse(clean);
+  } catch {
+    console.error("カルテJSON解析エラー:", text);
+    throw new Error("カルテの生成に失敗しました");
+  }
+}
+```
+
+---
+
+### 4. 全体フローを組み立てる
+
+「正式カルテ＋商品推薦を生成」ボタンを押したときに実行：
+```javascript
+async function generateFullRecord(transcripts) {
+  try {
+    // ローディング表示
+    showLoading("AIがカルテを生成中...");
+
+    // ステップ1：Haikuで構造化
+    const structured = await extractStructuredData(transcripts);
+    console.log("構造化データ:", structured);
+
+    // ステップ2：Sonnetでカルテ生成
+    const record = await generateMedicalRecord(structured);
+    console.log("カルテ:", record);
+
+    // 画面右側「AI要点整理」エリアに表示
+    displayMedicalRecord(record);
+
+  } catch (error) {
+    console.error("カルテ生成エラー:", error);
+    alert("カルテの生成に失敗しました。もう一度お試しください。");
+  } finally {
+    hideLoading();
+  }
+}
+```
+
+---
+
+### 5. カルテの表示
+
+画面右側「AI要点整理（自動）」エリアに以下を表示する：
+
+- 主訴
+- SOAP（S・O・A・P）
+- 本日の施術内容
+- 5軸アドバイス（運動・睡眠・栄養・生活・メンタル）
+- 次回確認事項
+
+---
+
+### やらないこと
+- Supabaseへの保存はまだやらない
+- 患者PWAへの送信はまだやらない
+- 他のタブは触らない

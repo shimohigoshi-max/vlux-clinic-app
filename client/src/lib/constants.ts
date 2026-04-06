@@ -49,7 +49,19 @@ export interface LifeAdvice {
 
 export interface KarteResult {
   chief_complaint?: string;
+  subjective?: string;
+  objective?: string;
   assessment?: string;
+  plan?: string;
+  treatment_summary?: string;
+  advice_5axis?: {
+    exercise?: string;
+    sleep?: string;
+    nutrition?: string;
+    lifestyle?: string;
+    mental?: string;
+  };
+  next_visit_note?: string;
   treatment_plan?: string;
   lifestyle_advice?: string[];
   recommended_products?: string[];

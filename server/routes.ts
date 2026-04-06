@@ -30,6 +30,11 @@ const analyzeInputSchema = z.object({
   patient_id: z.string().uuid().optional(),
   clinic_id: z.string().uuid().optional(),
   staff_name: z.string().max(50).optional(),
+  // structured transcripts from Whisper stereo split
+  structured_transcripts: z.object({
+    pre: z.object({ teacher: z.string(), patient: z.string() }).optional(),
+    post: z.object({ teacher: z.string(), patient: z.string() }).optional(),
+  }).optional(),
   // legacy fields kept for backward compat with existing frontend
   conversation: z.string().optional(),
   healthData: z.string().optional().default(""),
@@ -57,8 +62,19 @@ const summaryResponseSchema = z.object({
 
 const karteResponseSchema = z.object({
   chief_complaint: z.string().optional().default(""),
+  subjective: z.string().optional().default(""),
+  objective: z.string().optional().default(""),
   assessment: z.string().optional().default(""),
-  treatment_plan: z.string().optional().default(""),
+  plan: z.string().optional().default(""),
+  treatment_summary: z.string().optional().default(""),
+  advice_5axis: z.object({
+    exercise: z.string().optional().default(""),
+    sleep: z.string().optional().default(""),
+    nutrition: z.string().optional().default(""),
+    lifestyle: z.string().optional().default(""),
+    mental: z.string().optional().default(""),
+  }).optional().default({}),
+  next_visit_note: z.string().optional().default(""),
   lifestyle_advice: z.array(z.string()).optional().default([]),
   recommended_products: z.array(z.string()).optional().default([]),
   follow_up: z.string().optional().default(""),
@@ -332,78 +348,66 @@ key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に
       const reqPatientId = parsed.data.patient_id;
       const reqClinicId = parsed.data.clinic_id;
       const reqStaffName = parsed.data.staff_name;
+      const structuredTranscripts = parsed.data.structured_transcripts;
 
+      // ── Step 1: Haiku — 会話 → 構造化JSON ──────────────────────────
+      let haikuText = "";
+      try {
+        const preTeacher = structuredTranscripts?.pre?.teacher ?? "";
+        const prePatient = structuredTranscripts?.pre?.patient ?? "";
+        const postTeacher = structuredTranscripts?.post?.teacher ?? "";
+        const postPatient = structuredTranscripts?.post?.patient ?? "";
+
+        const haikuPrompt = structuredTranscripts
+          ? `以下は整骨院での施術前後の会話テキストです。\n九州・鹿児島・博多方言が含まれる場合があります。\n方言は標準語の意味に補完してください。\n例：こわい→疲れた、いたか→痛い、だるか→だるい、ばい→だよ\n\n【施術前：先生】\n${preTeacher}\n\n【施術前：患者】\n${prePatient}\n\n【施術後：先生】\n${postTeacher}\n\n【施術後：患者】\n${postPatient}`
+          : `以下は整骨院での施術会話テキストです。\n九州・鹿児島・博多方言が含まれる場合は標準語に補完してください。\n\n${transcription}`;
+
+        const haikuMsg = await anthropic.messages.create({
+          model: "claude-haiku-4-5-20251001",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: `${haikuPrompt}\n\n上記の会話から以下のJSONを抽出してください。\n情報が不明な場合は "不明" と入れてください。\n雑談・脱線は無視してください。\nJSONのみを返してください。前置きや説明は不要です。\n\n{\n  "symptoms": [],\n  "body_parts": [],\n  "severity": "",\n  "onset": "",\n  "possible_causes": [],\n  "treatment_done": "",\n  "teacher_notes": ""\n}`,
+          }],
+        });
+        haikuText = haikuMsg.content[0]?.type === "text" ? haikuMsg.content[0].text : "{}";
+        console.log("[haiku] structured extract done, length:", haikuText.length);
+      } catch (haikuErr) {
+        console.error("[haiku] error:", haikuErr);
+        // fallback: use plain transcription for Sonnet
+        haikuText = JSON.stringify({ symptoms: [], body_parts: [], severity: "不明", onset: "不明", possible_causes: [], treatment_done: "不明", teacher_notes: transcription.slice(0, 500) });
+      }
+
+      const haikuStructured = safeJsonParse(haikuText) ?? { teacher_notes: transcription.slice(0, 500) };
+
+      // ── Step 2: Sonnet — 構造化JSON → SOAPカルテ ─────────────────────
       let message;
       try {
         message = await anthropic.messages.create({
           model: "claude-sonnet-4-6",
-          max_tokens: 1000,
-          system: `あなたは整骨院専門のカルテ作成AIです。
-整骨院・接骨院で施術できる症状の範囲内でカルテを生成します。
+          max_tokens: 2000,
+          system: `あなたは整骨院専門のAIカルテ生成アシスタントです。
+整骨院・接骨院のスコープ内（肩こり・腰痛・筋肉疲労等）でカルテを生成します。
 
 【重要なルール】
-以下の症状は整骨院で十分対応できるため、
-他の医療機関（整形外科・眼科・内科等）への
-受診勧奨をrisk_flagsに含めないこと：
-- 首こり・肩こり・眼精疲労
-- 慢性腰痛・姿勢由来の腰痛
-- デスクワーク・スマホ由来の疲労
-- スポーツ後の筋肉疲労・筋肉痛
-- 骨盤の歪み・姿勢の悪化
-- 頭痛（緊張型）
-- 冷え・むくみ
+以下の症状は整骨院で十分対応できるため、risk_flagsに他院受診勧奨を含めないこと：
+- 首こり・肩こり・眼精疲労、慢性腰痛・姿勢由来の腰痛
+- デスクワーク・スマホ由来の疲労、スポーツ後の筋肉疲労
+- 骨盤の歪み・姿勢の悪化、頭痛（緊張型）、冷え・むくみ
 
-以下の場合のみrisk_flagsに他院受診を記載すること：
-- 下肢・上肢のしびれが強く広範囲に及ぶ場合
-- 排尿・排便障害を伴う場合
-- 発熱を伴う関節痛・腫脹がある場合
-- 安静時でも激しい痛みが持続する場合
-- 明らかな外傷による強い痛み（骨折疑い）
-- 胸痛・腹痛など内臓由来が疑われる場合
+以下の場合のみrisk_flagsに記載すること：
+- 下肢・上肢のしびれが強く広範囲、排尿・排便障害、発熱を伴う関節痛
+- 安静時の激しい持続痛、骨折疑い、内臓由来が疑われる症状
 
-患者の個人名・住所・生年月日などの個人情報は
-JSONに含めないこと。
-
-【病院診断結果の活用について】
-患者が他の医療機関での診断結果を話してくれた場合：
-- その診断内容をカルテのassessmentに記載してよい
-  例：「整形外科にて腰椎椎間板ヘルニアと診断済み」
-- 診断結果を整骨院の施術計画に積極的に活かすこと
-  例：「ヘルニアの診断を踏まえ、腰部への強い刺激は避けてアプローチする」
-- 病院での治療と整骨院の施術を並行することは患者にとってメリットがあるため、
-  treatment_planにその旨を自然に記載してよい
-  例：「整形外科での治療と並行して、筋緊張の緩和・姿勢改善を目的とした施術を行う」
-- ただし病院の治療内容を変更・中断するよう示唆する表現は含めないこと
-- すでに受診済みの医療機関への再受診勧奨はrisk_flagsに含めないこと`,
+患者の個人名・住所・生年月日などの個人情報はJSONに含めないこと。
+JSONのみを返すこと。前置きや説明は不要。`,
           messages: [{
             role: "user",
-            content: `以下の施術会話から構造化カルテを生成してください。
-会話テキスト：${transcription}
-
-以下のJSON形式のみで返答してください。
-説明文・前置き・コードブロックは不要です。
-
-{
-  "chief_complaint": "主訴を1文で",
-  "assessment": "整骨院の施術者としての見立てを1〜2文で",
-  "treatment_plan": "本日の施術方針を1〜2文で",
-  "lifestyle_advice": [
-    "生活アドバイス1",
-    "生活アドバイス2",
-    "生活アドバイス3"
-  ],
-  "recommended_products": [
-    "推薦商品（なければ空配列）"
-  ],
-  "follow_up": "次回来院の推奨時期",
-  "risk_flags": [
-    "本当に危険なサインがある場合のみ記載。なければ空配列"
-  ]
-}`
+            content: `以下の構造化データからSOAP形式のカルテを生成してください。\n\n【入力データ】\n${JSON.stringify(haikuStructured, null, 2)}\n\nJSONのみを返してください。前置き・説明・コードブロック不要です。\n\n{\n  "chief_complaint": "主訴（部位＋症状を1文で）",\n  "subjective": "患者の訴え・自覚症状",\n  "objective": "施術者の所見・確認事項",\n  "assessment": "施術者の見立て（1〜2文）",\n  "plan": "今後の施術方針（1〜2文）",\n  "treatment_summary": "本日の施術内容",\n  "advice_5axis": {\n    "exercise": "運動アドバイス",\n    "sleep": "睡眠アドバイス",\n    "nutrition": "栄養アドバイス",\n    "lifestyle": "生活習慣アドバイス",\n    "mental": "メンタルアドバイス"\n  },\n  "next_visit_note": "次回来院時の確認事項",\n  "lifestyle_advice": ["生活アドバイス1", "生活アドバイス2", "生活アドバイス3"],\n  "recommended_products": [],\n  "follow_up": "次回来院の推奨時期",\n  "risk_flags": []\n}`,
           }],
         });
       } catch (aiErr) {
-        console.error("Claude API error:", aiErr);
+        console.error("Claude Sonnet API error:", aiErr);
         return res.status(500).json({ error: "AI（Claude）の呼び出しに失敗しました。" });
       }
 
