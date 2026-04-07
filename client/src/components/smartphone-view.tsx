@@ -330,7 +330,7 @@ export function SmartphoneView({
       <div className="rounded-[2.5rem] border-[3px] border-border bg-background shadow-2xl overflow-hidden">
         <div className="bg-card/80 px-6 pt-3 pb-2 flex justify-between text-[10px] font-mono text-muted-foreground">
           <span data-testid="text-phone-time">9:41</span>
-          <span className="text-primary text-[9px] tracking-[1px]">VLUX</span>
+          <img src="/vlux-logo-white.png" alt="VLUX" className="h-3.5 w-auto object-contain" />
           <span>100%</span>
         </div>
 
