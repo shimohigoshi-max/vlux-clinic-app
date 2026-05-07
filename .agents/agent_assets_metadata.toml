@@ -6,3 +6,9 @@ id = "_oSIWhSJ5wXdLxc4koPHO"
 uri = "file://connected-healthcare.tar.gz"
 type = "unspecified"
 title = "Connected Healthcare ソースコード (tar.gz)"
+
+[[outputs]]
+id = "NeSNZq8hE6-F_Rtr6gqgQ"
+uri = "file://vlux-recon-report.md"
+type = "text"
+title = "VLUX リポジトリ偵察レポート"
