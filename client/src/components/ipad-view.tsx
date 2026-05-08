@@ -193,7 +193,9 @@ export function IPadView(props: IPadViewProps) {
   const [clinicForm, setClinicForm] = useState({
     name: "", postal: "", address: "", phone: "", email: "", hours: "", website: "",
     closedDays: [] as string[],
+    holidayDates: [] as { date: string; label: string }[],
   });
+  const [holidayInput, setHolidayInput] = useState({ date: "", label: "" });
   const [showAddStaff, setShowAddStaff] = useState(false);
   const [addStaffForm, setAddStaffForm] = useState({
     name: "", role: "staff" as "owner" | "staff" | "reception", email: "", calendar_color: "#00c896",
@@ -1437,6 +1439,84 @@ export function IPadView(props: IPadViewProps) {
                         ))}
                       </div>
                     </div>
+                    {/* ── 特定休日 ── */}
+                    <div className="space-y-2 md:col-span-2">
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">特定休日（祝日・臨時休診など）</Label>
+                      {/* プリセット */}
+                      <div className="flex gap-1.5 flex-wrap">
+                        {[
+                          { label: "元旦", date: `${new Date().getFullYear()}-01-01` },
+                          { label: "大晦日", date: `${new Date().getFullYear()}-12-31` },
+                          { label: "お盆", date: `${new Date().getFullYear()}-08-15` },
+                          { label: "年始2日", date: `${new Date().getFullYear()}-01-02` },
+                          { label: "年始3日", date: `${new Date().getFullYear()}-01-03` },
+                        ].map(preset => (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            onClick={() => {
+                              if (!clinicForm.holidayDates.find(h => h.date === preset.date)) {
+                                setClinicForm(f => ({ ...f, holidayDates: [...f.holidayDates, preset] }));
+                              }
+                            }}
+                            className="px-2 py-1 text-[11px] rounded border border-border text-muted-foreground hover:border-primary/50 hover:text-primary transition-colors"
+                          >{preset.label}</button>
+                        ))}
+                      </div>
+                      {/* 手動入力 */}
+                      <div className="flex gap-2 items-end">
+                        <div className="flex-1 space-y-1">
+                          <span className="text-[10px] text-muted-foreground">日付</span>
+                          <Input
+                            type="date"
+                            value={holidayInput.date}
+                            onChange={e => setHolidayInput(h => ({ ...h, date: e.target.value }))}
+                            className="text-[13px]"
+                          />
+                        </div>
+                        <div className="flex-1 space-y-1">
+                          <span className="text-[10px] text-muted-foreground">名称（任意）</span>
+                          <Input
+                            value={holidayInput.label}
+                            onChange={e => setHolidayInput(h => ({ ...h, label: e.target.value }))}
+                            placeholder="例：臨時休診"
+                            className="text-[13px]"
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          disabled={!holidayInput.date}
+                          onClick={() => {
+                            if (!holidayInput.date) return;
+                            const entry = { date: holidayInput.date, label: holidayInput.label || holidayInput.date };
+                            if (!clinicForm.holidayDates.find(h => h.date === entry.date)) {
+                              setClinicForm(f => ({ ...f, holidayDates: [...f.holidayDates, entry].sort((a, b) => a.date.localeCompare(b.date)) }));
+                            }
+                            setHolidayInput({ date: "", label: "" });
+                          }}
+                        ><Plus className="w-3.5 h-3.5" /> 追加</Button>
+                      </div>
+                      {/* 登録済み一覧 */}
+                      {clinicForm.holidayDates.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          {clinicForm.holidayDates.map(h => (
+                            <span
+                              key={h.date}
+                              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-primary/10 border border-primary/20 text-[11px] text-primary"
+                            >
+                              {h.date} {h.label && h.label !== h.date ? `（${h.label}）` : ""}
+                              <button
+                                type="button"
+                                onClick={() => setClinicForm(f => ({ ...f, holidayDates: f.holidayDates.filter(x => x.date !== h.date) }))}
+                                className="ml-0.5 text-primary/60 hover:text-red-400 transition-colors"
+                              >×</button>
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
                     <div className="space-y-1.5 md:col-span-2">
                       <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">ウェブサイト URL</Label>
                       <Input value={clinicForm.website} onChange={e => setClinicForm(f => ({ ...f, website: e.target.value }))} placeholder="https://example.com" className="text-[13px]" data-testid="input-clinic-website" />
