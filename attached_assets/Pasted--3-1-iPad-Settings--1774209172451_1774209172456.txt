@@ -1,0 +1,115 @@
+以下の3つを実装してください。
+
+【1. 歯車アイコン（設定）→ クリニックマスター登録画面】
+
+iPad画面の右上にギアアイコン（Settings）を追加。
+クリックするとモーダルが開く。
+
+設定モーダルの項目：
+
+■ 医院基本情報
+- 院名（必須）
+- 郵便番号
+- 住所
+- 電話番号
+- メールアドレス
+- 営業時間（例：9:00〜19:00）
+- 定休日（チェックボックス：月〜日）
+- ウェブサイトURL
+
+■ スタッフ管理
+- スタッフ一覧（name・role・status）
+- 「＋ スタッフ追加」ボタン
+  追加項目：氏名・役職（院長/施術スタッフ/受付）・
+  メールアドレス・表示色（カレンダー用）
+- スタッフ削除ボタン
+
+■ 施術メニュー（Phase 2のEC連携用）
+- メニュー名・施術時間（分）・料金
+- 「＋ メニュー追加」ボタン
+
+■ 通知設定
+- SMS送信：ON/OFF
+- 予約リマインド：何日前に送るか（1〜3日）
+
+保存ボタンでclinicsテーブルとstaffsテーブルに更新。
+
+【staffsテーブルをSupabaseに作成】
+
+create table staffs (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid references clinics(id) on delete cascade,
+  name text not null,
+  role text default 'staff',
+  email text,
+  calendar_color text default '#00c896',
+  is_active boolean default true,
+  created_at timestamptz default now()
+);
+
+alter table staffs enable row level security;
+
+create policy "自院のスタッフのみ参照可"
+  on staffs for select
+  using (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+visitsテーブルにstaff_idカラムを追加：
+alter table visits add column staff_id uuid references staffs(id);
+
+【2. 閲覧と管理者の権限区分】
+
+staffsテーブルのroleで以下を区分する：
+
+- owner（院長）：全機能アクセス可
+  設定変更・スタッフ管理・全患者データ閲覧・カルテ削除
+
+- staff（施術スタッフ）：施術関連のみ
+  自分の担当患者のカルテ作成・閲覧
+  他スタッフの患者も閲覧可（編集は不可）
+  設定変更・スタッフ管理は不可
+
+- reception（受付）：患者管理のみ
+  患者登録・予約管理・クーポン確認
+  カルテの閲覧のみ（作成・編集は不可）
+
+iPad画面の右上のスタッフ選択ドロップダウン
+（現在「院長 山田」と表示されている部分）で
+切り替えた際に、roleに応じてタブの表示・非表示を制御する。
+
+reception → カルテ・相関分析タブを非表示
+staff → 設定・スタッフ管理を非表示
+owner → 全タブ表示
+
+【3. 同姓同名の患者特定】
+
+患者登録フォームに以下を追加：
+- 生年月日（必須に変更）
+- 電話番号（必須に変更）
+- 住所（市区町村まで）
+
+患者カードの表示を以下に変更：
+「シモヒゴシ カツシ」
+「1985/03/15 · 090-XXXX-1234」（生年月日+電話末尾4桁）
+
+患者検索で同姓同名がヒットした場合：
+→ 2件以上ヒットしたときは
+  「同姓同名の患者が複数います」という警告バッジを表示
+→ 生年月日・電話番号末尾4桁を必ず表示して
+  先生が確認してから選択できるようにする
+
+patientsテーブルに以下を追加：
+alter table patients add column phone text;
+alter table patients add column birth_date date;
+alter table patients add column address text;
+
+【完了後の確認】
+1. ギアアイコンをクリックして設定モーダルが開くか確認
+2. staffsテーブルにスタッフを1人追加して保存されるか確認
+3. 「テスト タロウ」を2人登録して
+   同姓同名警告が表示されるか確認
+4. roleをreceptionに切り替えたとき
+   カルテタブが非表示になるか確認

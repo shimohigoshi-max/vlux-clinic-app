@@ -1,0 +1,365 @@
+<style>
+:root {
+  --vlux-green: #00c896;
+  --vlux-gold: #d4a030;
+  --vlux-blue: #4499ff;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+.sheet { font-family: var(--font-sans); max-width: 780px; margin: 0 auto; padding: 1rem 0; }
+.sheet-header { display: flex; align-items: center; gap: 12px; margin-bottom: 1.5rem; padding-bottom: 1rem; border-bottom: 0.5px solid var(--color-border-tertiary); }
+.vlux-badge { font-size: 13px; font-weight: 500; color: var(--vlux-green); background: rgba(0,200,150,0.1); border: 0.5px solid rgba(0,200,150,0.3); border-radius: 6px; padding: 4px 10px; letter-spacing: 1px; }
+.sheet-title { font-size: 18px; font-weight: 500; color: var(--color-text-primary); }
+.sheet-sub { font-size: 13px; color: var(--color-text-secondary); margin-top: 2px; }
+
+.section { background: var(--color-background-primary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-lg); padding: 1rem 1.25rem; margin-bottom: 1rem; }
+.section-label { font-size: 11px; font-weight: 500; color: var(--vlux-green); letter-spacing: 2px; text-transform: uppercase; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+.section-label::after { content: ''; flex: 1; height: 0.5px; background: rgba(0,200,150,0.2); }
+
+.field { margin-bottom: 14px; }
+.field:last-child { margin-bottom: 0; }
+.field-label { font-size: 13px; color: var(--color-text-secondary); margin-bottom: 6px; font-weight: 500; }
+.field-label .required { color: var(--vlux-green); font-size: 11px; margin-left: 4px; }
+
+input[type="text"], textarea, select {
+  width: 100%; font-family: var(--font-sans); font-size: 14px;
+  background: var(--color-background-secondary); color: var(--color-text-primary);
+  border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md);
+  padding: 8px 12px; outline: none; transition: border-color 0.15s;
+}
+input[type="text"]:focus, textarea:focus, select:focus { border-color: var(--vlux-green); }
+textarea { resize: vertical; min-height: 72px; line-height: 1.6; }
+select { appearance: none; cursor: pointer; }
+
+.chip-group { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip { font-size: 13px; padding: 5px 12px; border-radius: 20px; border: 0.5px solid var(--color-border-tertiary); background: var(--color-background-secondary); color: var(--color-text-secondary); cursor: pointer; transition: all 0.15s; user-select: none; }
+.chip.selected { background: rgba(0,200,150,0.12); border-color: rgba(0,200,150,0.5); color: var(--vlux-green); font-weight: 500; }
+.chip.gold.selected { background: rgba(212,160,48,0.12); border-color: rgba(212,160,48,0.5); color: var(--vlux-gold); }
+
+.row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+
+.pain-scale { display: flex; gap: 4px; align-items: center; }
+.pain-btn { width: 36px; height: 36px; border-radius: 50%; border: 0.5px solid var(--color-border-tertiary); background: var(--color-background-secondary); color: var(--color-text-secondary); font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; }
+.pain-btn.active-low { background: rgba(0,200,150,0.2); border-color: var(--vlux-green); color: var(--vlux-green); }
+.pain-btn.active-mid { background: rgba(212,160,48,0.2); border-color: var(--vlux-gold); color: var(--vlux-gold); }
+.pain-btn.active-high { background: rgba(226,75,74,0.2); border-color: #e24b4a; color: #e24b4a; }
+.pain-label { font-size: 11px; color: var(--color-text-secondary); margin: 0 4px; }
+
+.generate-btn { width: 100%; padding: 12px; border-radius: var(--border-radius-md); border: 0.5px solid rgba(0,200,150,0.4); background: rgba(0,200,150,0.1); color: var(--vlux-green); font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 1rem; }
+.generate-btn:hover { background: rgba(0,200,150,0.2); }
+
+.json-output { background: var(--color-background-secondary); border: 0.5px solid var(--color-border-tertiary); border-radius: var(--border-radius-md); padding: 1rem; margin-top: 1rem; font-family: var(--font-mono); font-size: 12px; color: var(--color-text-secondary); white-space: pre-wrap; line-height: 1.7; display: none; }
+.json-output.show { display: block; }
+.json-key { color: var(--vlux-blue); }
+.json-val { color: var(--vlux-green); }
+
+.output-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.output-label { font-size: 11px; font-weight: 500; color: var(--color-text-secondary); letter-spacing: 2px; text-transform: uppercase; }
+.copy-btn { font-size: 11px; padding: 3px 10px; border-radius: 4px; border: 0.5px solid var(--color-border-tertiary); background: transparent; color: var(--color-text-secondary); cursor: pointer; }
+.copy-btn:hover { border-color: var(--vlux-green); color: var(--vlux-green); }
+</style>
+
+<div class="sheet">
+  <div class="sheet-header">
+    <div class="vlux-badge">VLUX</div>
+    <div>
+      <div class="sheet-title">初診問診シート</div>
+      <div class="sheet-sub">Initial Consultation — 院内iPad用</div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">基本情報</div>
+    <div class="row2">
+      <div class="field">
+        <div class="field-label">患者氏名（カナ）<span class="required">必須</span></div>
+        <input type="text" id="name" placeholder="ヤマダ タロウ" />
+      </div>
+      <div class="field">
+        <div class="field-label">年齢・性別</div>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="age" placeholder="38歳" style="width:80px;" />
+          <select id="gender">
+            <option value="">性別</option>
+            <option>男性</option>
+            <option>女性</option>
+            <option>その他</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">職業・生活スタイル</div>
+      <div class="chip-group" id="job-chips">
+        <div class="chip" onclick="toggleChip(this,'job')">デスクワーク</div>
+        <div class="chip" onclick="toggleChip(this,'job')">立ち仕事</div>
+        <div class="chip" onclick="toggleChip(this,'job')">肉体労働</div>
+        <div class="chip" onclick="toggleChip(this,'job')">主婦・主夫</div>
+        <div class="chip" onclick="toggleChip(this,'job')">学生</div>
+        <div class="chip" onclick="toggleChip(this,'job')">スポーツ系</div>
+        <div class="chip" onclick="toggleChip(this,'job')">その他</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">主訴・症状</div>
+    <div class="field">
+      <div class="field-label">どこが痛い・つらいですか？<span class="required">必須</span></div>
+      <div class="chip-group" id="area-chips">
+        <div class="chip" onclick="toggleChip(this,'area')">腰</div>
+        <div class="chip" onclick="toggleChip(this,'area')">首・肩</div>
+        <div class="chip" onclick="toggleChip(this,'area')">膝</div>
+        <div class="chip" onclick="toggleChip(this,'area')">股関節</div>
+        <div class="chip" onclick="toggleChip(this,'area')">背中</div>
+        <div class="chip" onclick="toggleChip(this,'area')">肘・手首</div>
+        <div class="chip" onclick="toggleChip(this,'area')">足首</div>
+        <div class="chip" onclick="toggleChip(this,'area')">頭痛</div>
+        <div class="chip" onclick="toggleChip(this,'area')">全身</div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">痛みの強さ（0 = なし、10 = 最大）<span class="required">必須</span></div>
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span class="pain-label">なし</span>
+        <div class="pain-scale" id="pain-scale">
+          <div class="pain-btn" onclick="setPain(0)">0</div>
+          <div class="pain-btn" onclick="setPain(1)">1</div>
+          <div class="pain-btn" onclick="setPain(2)">2</div>
+          <div class="pain-btn" onclick="setPain(3)">3</div>
+          <div class="pain-btn" onclick="setPain(4)">4</div>
+          <div class="pain-btn" onclick="setPain(5)">5</div>
+          <div class="pain-btn" onclick="setPain(6)">6</div>
+          <div class="pain-btn" onclick="setPain(7)">7</div>
+          <div class="pain-btn" onclick="setPain(8)">8</div>
+          <div class="pain-btn" onclick="setPain(9)">9</div>
+          <div class="pain-btn" onclick="setPain(10)">10</div>
+        </div>
+        <span class="pain-label">最大</span>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">痛みの性質（複数可）</div>
+      <div class="chip-group">
+        <div class="chip" onclick="toggleChip(this,'pain_type')">ズキズキ・鋭い</div>
+        <div class="chip" onclick="toggleChip(this,'pain_type')">じんわり・鈍い</div>
+        <div class="chip" onclick="toggleChip(this,'pain_type')">しびれ</div>
+        <div class="chip" onclick="toggleChip(this,'pain_type')">こわばり</div>
+        <div class="chip" onclick="toggleChip(this,'pain_type')">だるさ・重さ</div>
+        <div class="chip" onclick="toggleChip(this,'pain_type')">熱感</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">発症・原因</div>
+    <div class="row2">
+      <div class="field">
+        <div class="field-label">いつ頃から？<span class="required">必須</span></div>
+        <div class="chip-group" id="onset-chips">
+          <div class="chip" onclick="toggleChip(this,'onset',true)">今日・今朝</div>
+          <div class="chip" onclick="toggleChip(this,'onset',true)">2〜3日前</div>
+          <div class="chip" onclick="toggleChip(this,'onset',true)">1週間前</div>
+          <div class="chip" onclick="toggleChip(this,'onset',true)">1ヶ月前</div>
+          <div class="chip" onclick="toggleChip(this,'onset',true)">半年以上</div>
+          <div class="chip" onclick="toggleChip(this,'onset',true)">慢性的に</div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label">きっかけ・原因（複数可）</div>
+        <div class="chip-group">
+          <div class="chip" onclick="toggleChip(this,'cause')">重いものを持った</div>
+          <div class="chip" onclick="toggleChip(this,'cause')">長時間座った</div>
+          <div class="chip" onclick="toggleChip(this,'cause')">スポーツ中</div>
+          <div class="chip" onclick="toggleChip(this,'cause')">寝起き</div>
+          <div class="chip" onclick="toggleChip(this,'cause')">転倒・事故</div>
+          <div class="chip" onclick="toggleChip(this,'cause')">心当たりなし</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">補足（自由記述）</div>
+      <textarea id="cause-memo" placeholder="例：引越し作業の翌日から急に痛みが出た"></textarea>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">生活への影響</div>
+    <div class="field">
+      <div class="field-label">つらい動作・場面（複数可）</div>
+      <div class="chip-group">
+        <div class="chip" onclick="toggleChip(this,'impact')">長時間座る</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">立ち上がり</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">歩く</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">寝返り</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">前かがみ</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">仕事中ずっと</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">就寝・起床時</div>
+        <div class="chip" onclick="toggleChip(this,'impact')">運動時</div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">睡眠への影響</div>
+      <div class="chip-group">
+        <div class="chip" onclick="toggleChip(this,'sleep',true)">問題なし</div>
+        <div class="chip" onclick="toggleChip(this,'sleep',true)">寝付きが悪い</div>
+        <div class="chip" onclick="toggleChip(this,'sleep',true)">途中で目が覚める</div>
+        <div class="chip" onclick="toggleChip(this,'sleep',true)">眠れていない</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">既往歴・生活習慣</div>
+    <div class="field">
+      <div class="field-label">過去に同じ症状・通院歴はありますか？</div>
+      <div class="chip-group">
+        <div class="chip" onclick="toggleChip(this,'history',true)">初めて</div>
+        <div class="chip" onclick="toggleChip(this,'history',true)">以前もあった（自然に治った）</div>
+        <div class="chip" onclick="toggleChip(this,'history',true)">通院したことがある</div>
+        <div class="chip" onclick="toggleChip(this,'history',true)">手術歴あり</div>
+      </div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <div class="field-label">運動習慣</div>
+        <div class="chip-group">
+          <div class="chip" onclick="toggleChip(this,'exercise',true)">週3回以上</div>
+          <div class="chip" onclick="toggleChip(this,'exercise',true)">週1〜2回</div>
+          <div class="chip" onclick="toggleChip(this,'exercise',true)">ほぼなし</div>
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label">お酒・喫煙</div>
+        <div class="chip-group">
+          <div class="chip" onclick="toggleChip(this,'lifestyle')">飲酒あり</div>
+          <div class="chip" onclick="toggleChip(this,'lifestyle')">喫煙あり</div>
+          <div class="chip" onclick="toggleChip(this,'lifestyle')">どちらもなし</div>
+        </div>
+      </div>
+    </div>
+    <div class="field">
+      <div class="field-label">現在服用中の薬・持病（あれば）</div>
+      <input type="text" id="medication" placeholder="例：血圧の薬、糖尿病" />
+    </div>
+  </div>
+
+  <div class="section">
+    <div class="section-label">患者の希望</div>
+    <div class="field">
+      <div class="field-label">今日一番解決したいこと</div>
+      <textarea id="goal" placeholder="例：来週の出張までに腰の痛みを和らげたい"></textarea>
+    </div>
+    <div class="field">
+      <div class="field-label">気になること・質問（自由記述）</div>
+      <textarea id="question" placeholder="例：ストレッチは自分でやってもいいですか？"></textarea>
+    </div>
+  </div>
+
+  <button class="generate-btn" onclick="generateJSON()">
+    Claude API 用プロンプトを生成 ↗
+  </button>
+
+  <div id="json-container" style="display:none;">
+    <div class="output-header" style="margin-top:1rem;">
+      <div class="output-label">Claude API — 送信データプレビュー</div>
+      <button class="copy-btn" onclick="copyJSON()">コピー</button>
+    </div>
+    <div id="json-output" class="json-output show"></div>
+  </div>
+</div>
+
+<script>
+const state = { pain: null };
+const selections = {};
+
+function toggleChip(el, key, single) {
+  if (single) {
+    el.closest('.chip-group') && el.closest('.chip-group').querySelectorAll('.chip').forEach(c => c.classList.remove('selected'));
+  }
+  el.classList.toggle('selected');
+  if (!selections[key]) selections[key] = [];
+  const val = el.textContent.trim();
+  if (el.classList.contains('selected')) {
+    if (single) selections[key] = [val];
+    else if (!selections[key].includes(val)) selections[key].push(val);
+  } else {
+    selections[key] = selections[key].filter(v => v !== val);
+  }
+}
+
+function setPain(n) {
+  state.pain = n;
+  document.querySelectorAll('.pain-btn').forEach((btn, i) => {
+    btn.classList.remove('active-low','active-mid','active-high');
+    if (i <= n) {
+      if (n <= 3) btn.classList.add('active-low');
+      else if (n <= 6) btn.classList.add('active-mid');
+      else btn.classList.add('active-high');
+    }
+  });
+}
+
+function generateJSON() {
+  const data = {
+    patient_id: "P" + Date.now().toString().slice(-6),
+    visit_type: "初診",
+    basic: {
+      name_kana: document.getElementById('name').value || "未入力",
+      age: document.getElementById('age').value || "不明",
+      gender: document.getElementById('gender').value || "不明",
+      occupation: (selections['job'] || []).join('、') || "未回答"
+    },
+    chief_complaint: {
+      area: (selections['area'] || []).join('、') || "未選択",
+      pain_score: state.pain !== null ? state.pain + "/10" : "未入力",
+      pain_type: (selections['pain_type'] || []).join('、') || "未選択"
+    },
+    onset: {
+      timing: (selections['onset'] || []).join('') || "未選択",
+      cause: (selections['cause'] || []).join('、') || "未選択",
+      memo: document.getElementById('cause-memo').value || ""
+    },
+    daily_impact: {
+      difficult_actions: (selections['impact'] || []).join('、') || "未選択",
+      sleep: (selections['sleep'] || []).join('') || "未回答"
+    },
+    history: {
+      past_symptoms: (selections['history'] || []).join('') || "未回答",
+      exercise_habit: (selections['exercise'] || []).join('') || "未回答",
+      lifestyle: (selections['lifestyle'] || []).join('、') || "未選択",
+      medication: document.getElementById('medication').value || "なし"
+    },
+    patient_goal: document.getElementById('goal').value || "",
+    questions: document.getElementById('question').value || ""
+  };
+
+  const prompt = `あなたは整骨院の熟練カルテ作成AIです。
+以下の初診問診データをもとに、構造化カルテと施術計画を生成してください。
+
+【問診データ】
+${JSON.stringify(data, null, 2)}
+
+【出力形式（JSONのみ・説明文不要）】
+{
+  "summary": "患者の状態を2〜3文で要約",
+  "assessment": "施術者の見立て",
+  "treatment_plan": "本日の施術方針",
+  "lifestyle_advice": ["アドバイス1", "アドバイス2", "アドバイス3"],
+  "recommended_products": ["推薦商品（あれば）"],
+  "follow_up": "次回来院の推奨時期",
+  "risk_flags": ["注意すべき点（あれば）"]
+}`;
+
+  document.getElementById('json-container').style.display = 'block';
+  document.getElementById('json-output').textContent = prompt;
+}
+
+function copyJSON() {
+  const text = document.getElementById('json-output').textContent;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.copy-btn');
+    btn.textContent = '✓ コピー済み';
+    setTimeout(() => btn.textContent = 'コピー', 1500);
+  });
+}
+</script>

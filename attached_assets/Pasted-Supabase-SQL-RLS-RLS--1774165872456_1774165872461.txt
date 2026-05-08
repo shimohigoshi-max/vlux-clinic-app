@@ -1,0 +1,106 @@
+Supabaseに以下のSQLを実行して、RLSポリシーを設定してください。
+RLS（行レベルセキュリティ）とは「自分のデータしか見えない」ルールをデータベース側で強制する仕組みです。
+
+-- =====================
+-- clinics（医院テーブル）
+-- 自分の医院だけ見える・編集できる
+-- =====================
+create policy "院オーナーのみ参照可"
+  on clinics for select
+  using (owner_id = auth.uid());
+
+create policy "院オーナーのみ更新可"
+  on clinics for update
+  using (owner_id = auth.uid());
+
+-- =====================
+-- patients（患者テーブル）
+-- 自分の医院の患者だけ見える
+-- =====================
+create policy "自院の患者のみ参照可"
+  on patients for select
+  using (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+create policy "自院に患者を登録可"
+  on patients for insert
+  with check (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+create policy "自院の患者のみ更新可"
+  on patients for update
+  using (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+-- 患者本人は自分のデータを見られる
+create policy "患者本人は自分を参照可"
+  on patients for select
+  using (user_id = auth.uid());
+
+-- =====================
+-- visits（来院記録テーブル）
+-- 自分の医院の来院記録だけ見える
+-- =====================
+create policy "自院の来院記録のみ参照可"
+  on visits for select
+  using (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+create policy "自院に来院記録を登録可"
+  on visits for insert
+  with check (
+    clinic_id in (
+      select id from clinics where owner_id = auth.uid()
+    )
+  );
+
+-- 患者本人は自分の来院記録を見られる
+create policy "患者本人は自分の来院記録を参照可"
+  on visits for select
+  using (
+    patient_id in (
+      select id from patients where user_id = auth.uid()
+    )
+  );
+
+-- =====================
+-- health_data（HealthKitデータ）
+-- 患者本人と担当医院だけ見える
+-- =====================
+create policy "患者本人は自分の健康データを参照可"
+  on health_data for select
+  using (
+    patient_id in (
+      select id from patients where user_id = auth.uid()
+    )
+  );
+
+create policy "患者本人は自分の健康データを登録可"
+  on health_data for insert
+  with check (
+    patient_id in (
+      select id from patients where user_id = auth.uid()
+    )
+  );
+
+create policy "担当医院は患者の健康データを参照可"
+  on health_data for select
+  using (
+    patient_id in (
+      select p.id from patients p
+      join clinics c on p.clinic_id = c.id
+      where c.owner_id = auth.uid()
+    )
+  );
