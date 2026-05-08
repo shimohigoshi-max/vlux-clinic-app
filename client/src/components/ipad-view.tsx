@@ -52,6 +52,17 @@ function renderUnclearText(text: string): React.ReactNode {
   });
 }
 
+const DEMO_PATIENT_ENTRY = {
+  id: "00000000-demo-0000-0000-000000000001",
+  name_kana: "徳川家康",
+  member_grade: "gold",
+  gender: "male",
+  birth_date: "1543-01-31",
+  phone: "090-0000-1543",
+  address: "愛知県岡崎市",
+  created_at: "2026-01-01T00:00:00.000Z",
+} as const;
+
 function parseFollowUpDays(text: string): number {
   const s = text.replace(/\s/g, "");
   const week = s.match(/(\d+)[週週](?:間)?後?/);
@@ -344,6 +355,7 @@ export function IPadView(props: IPadViewProps) {
   const selectedPatient = patients.find(p => p.id === selectedPatientId) ?? null;
 
   const filteredPatients = useMemo(() => {
+    if (patientSearch.trim().toLowerCase() === "demo") return [DEMO_PATIENT_ENTRY];
     if (!patientSearch.trim()) return patients;
     const q = normalizeJa(patientSearch);
     return patients.filter(p => normalizeJa(p.name_kana).includes(q));
