@@ -99,9 +99,6 @@ export default function PatientApp() {
             <p className="text-[9px] text-muted-foreground tracking-[3px]">PATIENT · 患者アプリ</p>
           </div>
         </div>
-        <a href="/clinic" className="text-[11px] text-muted-foreground hover:text-primary transition-colors font-mono tracking-wider" data-testid="link-to-clinic">
-          ← 院内端末
-        </a>
       </header>
 
       <PatientNotificationTicker />
