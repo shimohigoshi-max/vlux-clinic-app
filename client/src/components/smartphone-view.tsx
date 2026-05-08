@@ -80,6 +80,28 @@ export function SmartphoneView({
   const [issuedCoupon, setIssuedCoupon] = useState<Coupon | null>(null);
   const [couponIssuing, setCouponIssuing] = useState(false);
   const [connectedSource, setConnectedSource] = useState<"healthkit" | "googlefit" | "mock" | null>(null);
+  const [notifPerm, setNotifPerm] = useState<NotificationPermission>(() =>
+    typeof Notification !== "undefined" ? Notification.permission : "default"
+  );
+
+  const sendNotif = (title: string, body: string) => {
+    if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+    new Notification(title, {
+      body,
+      icon: "/vlux-logo-white.png",
+      badge: "/vlux-logo-white.png",
+      tag: "vlux-booking",
+    });
+  };
+
+  const requestNotifPerm = async () => {
+    if (typeof Notification === "undefined") return;
+    const result = await Notification.requestPermission();
+    setNotifPerm(result);
+    if (result === "granted") {
+      setTimeout(() => sendNotif("VLUX 通知設定完了", "予約の確定・返信などをすぐにお知らせします"), 500);
+    }
+  };
   const [lastSyncTime, setLastSyncTime] = useState<Date | null>(null);
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
@@ -458,6 +480,35 @@ export function SmartphoneView({
               <div className="space-y-2.5">
                 <ClinicBanner activeClinic={activeClinic} onSwitch={setActiveClinic} />
 
+                {notifPerm === "default" && (
+                  <div className="flex items-center gap-3 bg-card border border-border rounded-xl px-3 py-2.5" data-testid="notif-permission-card">
+                    <div className="w-7 h-7 rounded-lg bg-blue-500/15 flex items-center justify-center shrink-0">
+                      <Bell className="w-3.5 h-3.5 text-blue-400" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] font-medium text-foreground">予約・返信を通知で受け取る</p>
+                      <p className="text-[9px] text-muted-foreground">確定・返信・リマインダーをすぐにお知らせ</p>
+                    </div>
+                    <button
+                      onClick={requestNotifPerm}
+                      className="shrink-0 text-[10px] font-medium text-blue-400 bg-blue-500/10 border border-blue-500/20 rounded-lg px-2.5 py-1.5 hover:bg-blue-500/20 transition-colors"
+                      data-testid="button-request-notif"
+                    >
+                      許可する
+                    </button>
+                  </div>
+                )}
+                {notifPerm === "granted" && (
+                  <p className="text-[10px] text-primary flex items-center gap-1.5 px-1" data-testid="notif-granted">
+                    <Bell className="w-3 h-3" /> 通知オン · 予約の更新をすぐにお知らせします
+                  </p>
+                )}
+                {notifPerm === "denied" && (
+                  <p className="text-[10px] text-muted-foreground/50 flex items-center gap-1.5 px-1" data-testid="notif-denied">
+                    <Bell className="w-3 h-3" /> 通知がブロックされています · 端末の設定から変更できます
+                  </p>
+                )}
+
                 {patientSent && karte && !karte.error ? (
                   <>
                     <div className="bg-primary/5 border border-primary/20 rounded-md p-3.5 animate-slide-up" data-testid="card-today-treatment">
@@ -524,13 +575,13 @@ export function SmartphoneView({
                       </div>
                     )}
 
-                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} />
+                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} onNotify={sendNotif} />
 
                     <CouponWallet expanded />
                   </>
                 ) : (
                   <>
-                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} />
+                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} onNotify={sendNotif} />
 
                     <CouponWallet expanded={false} />
 
@@ -1072,7 +1123,7 @@ const MOCK_ALT_SLOTS: PatientAltSlot[] = [
   { id: "c", date: "5/16（土）", time: "11:00" },
 ];
 
-function BookingRequestPanel({ clinicName }: { clinicName: string }) {
+function BookingRequestPanel({ clinicName, onNotify }: { clinicName: string; onNotify?: (title: string, body: string) => void }) {
   const [stage, setStage] = useState<PatientBookingStage>("idle");
   const [form, setForm] = useState<BookingFormState>({
     treatmentType: "定期施術",
@@ -1087,13 +1138,26 @@ function BookingRequestPanel({ clinicName }: { clinicName: string }) {
   const handleSubmit = () => {
     if (!form.preferredDate) return;
     setStage("sent");
-    setTimeout(() => setStage("alt_received"), 2000);
+    setTimeout(() => {
+      setStage("alt_received");
+      onNotify?.(
+        `${clinicName}から返信あり`,
+        `ご希望日の代替候補が届いています。アプリで確認してください。`
+      );
+    }, 2000);
   };
 
   const handleAltAccept = () => {
     if (!selectedAlt) return;
     setStage("alt_accepted");
-    setTimeout(() => setStage("confirmed"), 1500);
+    const slot = MOCK_ALT_SLOTS.find(s => s.id === selectedAlt);
+    setTimeout(() => {
+      setStage("confirmed");
+      onNotify?.(
+        "予約が確定しました ✅",
+        `${slot ? `${slot.date} ${slot.time}` : ""} ${clinicName} · ${form.treatmentType}`
+      );
+    }, 1500);
   };
 
   const chosenSlot = MOCK_ALT_SLOTS.find(s => s.id === selectedAlt);
