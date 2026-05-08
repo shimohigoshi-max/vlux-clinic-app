@@ -357,6 +357,8 @@ export function SmartphoneView({
           <span>100%</span>
         </div>
 
+        <PhoneNotificationTicker />
+
         <div className="bg-gradient-to-b from-card to-background px-4 pt-3 pb-0">
           {patientSent && (
             <div className="bg-primary/10 border border-primary/30 rounded-md px-3 py-2.5 mb-3 flex items-center gap-2.5 animate-fade-in" data-testid="notification-report">
@@ -1740,6 +1742,55 @@ function CouponWallet({ expanded }: { expanded: boolean }) {
   );
 }
 
+
+const PHONE_TICKER_ITEMS = [
+  { type: "reply",    label: "💬 返信あり：田中整骨院から予約リクエストへの返信が届いています" },
+  { type: "booking",  label: "✅ 予約確定：5月15日（金）10:00 田中整骨院 — 定期施術" },
+  { type: "reminder", label: "🔔 来院リマインダー：明日 10:00 田中整骨院のご予約があります" },
+  { type: "coupon",   label: "🎟 クーポン付与：今回の来院で ¥500 OFFクーポンが追加されました" },
+  { type: "health",   label: "💙 ヘルスデータ更新：今週の歩数平均 8,240歩 — 先週比 +12%" },
+];
+
+function PhoneNotificationTicker() {
+  const colorMap: Record<string, string> = {
+    reply:    "text-blue-400",
+    booking:  "text-primary",
+    reminder: "text-amber-400",
+    coupon:   "text-rose-400",
+    health:   "text-emerald-400",
+  };
+  const sep = <span className="mx-5 text-muted-foreground/20 select-none">◆</span>;
+  const content = PHONE_TICKER_ITEMS.map((item, i) => (
+    <span key={i} className={`whitespace-nowrap ${colorMap[item.type]}`}>
+      {item.label}
+      {i < PHONE_TICKER_ITEMS.length - 1 && sep}
+    </span>
+  ));
+  return (
+    <div className="relative overflow-hidden bg-card/60 border-b border-border/50 h-6 flex items-center">
+      <style>{`
+        @keyframes phone-ticker {
+          0%   { transform: translateX(400px); }
+          100% { transform: translateX(-100%); }
+        }
+        .phone-ticker-track {
+          display: inline-flex;
+          animation: phone-ticker 45s linear infinite;
+          will-change: transform;
+        }
+        .phone-ticker-track:hover { animation-play-state: paused; }
+      `}</style>
+      <span className="flex-shrink-0 z-10 px-1.5 font-mono text-[8px] tracking-[2px] text-primary/60 bg-card/70 border-r border-border/50 h-full flex items-center select-none">
+        INFO
+      </span>
+      <div className="overflow-hidden flex-1 h-full flex items-center">
+        <span className="phone-ticker-track text-[9px] font-mono">
+          {content}{sep}{content}
+        </span>
+      </div>
+    </div>
+  );
+}
 
 function ClinicBanner({ activeClinic, onSwitch }: { activeClinic: string; onSwitch: (id: string) => void }) {
   const clinics = Object.values(CLINIC_MASTER);
