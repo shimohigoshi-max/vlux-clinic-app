@@ -352,7 +352,10 @@ export function IPadView(props: IPadViewProps) {
     return m;
   }, [patients]);
 
-  const selectedPatient = patients.find(p => p.id === selectedPatientId) ?? null;
+  const selectedPatient =
+    selectedPatientId === DEMO_PATIENT_ENTRY.id
+      ? DEMO_PATIENT_ENTRY
+      : (patients.find(p => p.id === selectedPatientId) ?? null);
 
   const filteredPatients = useMemo(() => {
     if (patientSearch.trim().toLowerCase() === "demo") return [DEMO_PATIENT_ENTRY];
@@ -708,7 +711,7 @@ export function IPadView(props: IPadViewProps) {
             ) : (
               <div className="flex items-center gap-2 mb-3 bg-amber-500/10 border border-amber-500/20 rounded-md px-3 py-2" data-testid="no-patient-warning">
                 <AlertCircle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="text-[12px] text-amber-400">患者を選択してください（任意）</span>
+                <span className="text-[12px] text-amber-400">患者を選択してください</span>
                 <button onClick={() => onIpadTabChange("patients")} className="ml-auto text-[11px] text-primary underline">患者選択 →</button>
               </div>
             )}
