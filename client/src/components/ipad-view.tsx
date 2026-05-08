@@ -824,11 +824,13 @@ export function IPadView(props: IPadViewProps) {
                 />
               </div>
             )}
-            <div className="flex gap-2 mt-2">
-              <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
-                <FileText className="w-4 h-4" /> サンプル読込
-              </Button>
-            </div>
+            {selectedPatientId === DEMO_PATIENT_ENTRY.id && (
+              <div className="flex gap-2 mt-2">
+                <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
+                  <FileText className="w-4 h-4" /> サンプル読込
+                </Button>
+              </div>
+            )}
             <Button
               className="w-full mt-2.5"
               size="lg"
