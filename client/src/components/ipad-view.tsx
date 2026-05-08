@@ -16,7 +16,7 @@ import {
   Users, ShoppingCart, Package, Calendar, ChevronDown, ChevronUp, Clock,
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
   MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket, CalendarDays, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Settings, Building2, Bell, Palette,
+  Settings, Building2, Bell, Palette, Download,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type {
@@ -2118,6 +2118,27 @@ function ScheduleTab({ visits, patientMap, clinicName }: {
   const weekLabel = `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} — ${weekDays[6].getMonth()+1}/${weekDays[6].getDate()}`;
   const getSlot = (idx: number) => `${(9 + idx).toString().padStart(2,"0")}:00`;
 
+  const exportAppointmentsCSV = () => {
+    const header = ["予約日", "患者名", "主訴", "フォローアップ内容"];
+    const rows = appointments.map(a => [
+      `${a.expected_date.getFullYear()}/${(a.expected_date.getMonth()+1).toString().padStart(2,"0")}/${a.expected_date.getDate().toString().padStart(2,"0")}`,
+      a.patient_name,
+      a.chief_complaint ?? "",
+      a.follow_up_text ?? "",
+    ]);
+    const csv = [header, ...rows]
+      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
+      .join("\n");
+    const bom = "\uFEFF";
+    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `予約一覧_${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div data-testid="schedule-tab" className="space-y-4">
       {/* ヘッダー */}
@@ -2137,6 +2158,17 @@ function ScheduleTab({ visits, patientMap, clinicName }: {
           </Button>
           <Button variant="outline" size="sm" className="text-[11px] h-8" onClick={() => setWeekOffset(0)} data-testid="button-schedule-today">
             今週
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            className="text-[11px] h-8 gap-1"
+            onClick={exportAppointmentsCSV}
+            disabled={appointments.length === 0}
+            data-testid="button-schedule-csv"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSV出力
           </Button>
         </div>
       </div>
