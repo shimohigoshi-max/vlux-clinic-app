@@ -200,6 +200,7 @@ export function IPadView(props: IPadViewProps) {
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
   const [isSavingStaff, setIsSavingStaff] = useState(false);
+  const [postalLooking, setPostalLooking] = useState(false);
   const [menuItems, setMenuItems] = useState([
     { name: "整体施術", duration: 30, price: 3300 },
     { name: "鍼施術", duration: 45, price: 5500 },
@@ -345,6 +346,26 @@ export function IPadView(props: IPadViewProps) {
     }
     return results;
   }, [adminVisits, visitPatientFilter, visitStaffFilter, patientMap]);
+
+  // ── 郵便番号 → 住所自動入力 ───────────────────────────────────────
+  const lookupPostal = async (raw: string) => {
+    const digits = raw.replace(/[^\d]/g, "");
+    setClinicForm(f => ({ ...f, postal: raw }));
+    if (digits.length !== 7) return;
+    setPostalLooking(true);
+    try {
+      const res = await fetch(`https://zipcloud.ibsnet.co.jp/api/search?zipcode=${digits}`);
+      const data = await res.json();
+      if (data.results && data.results.length > 0) {
+        const r = data.results[0];
+        const addr = `${r.address1}${r.address2}${r.address3}`;
+        setClinicForm(f => ({ ...f, address: addr }));
+      }
+    } catch {
+    } finally {
+      setPostalLooking(false);
+    }
+  };
 
   // ── Settings save ─────────────────────────────────────────────────
   const saveClinicSettings = async () => {
@@ -1367,8 +1388,18 @@ export function IPadView(props: IPadViewProps) {
                       <Input value={clinicForm.name} onChange={e => setClinicForm(f => ({ ...f, name: e.target.value }))} placeholder="例：堺整骨院" className="text-[13px]" data-testid="input-clinic-name" />
                     </div>
                     <div className="space-y-1.5">
-                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">郵便番号</Label>
-                      <Input value={clinicForm.postal} onChange={e => setClinicForm(f => ({ ...f, postal: e.target.value }))} placeholder="〒000-0000" className="text-[13px]" data-testid="input-clinic-postal" />
+                      <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">
+                        郵便番号
+                        {postalLooking && <span className="ml-2 text-primary animate-pulse">住所を検索中…</span>}
+                      </Label>
+                      <Input
+                        value={clinicForm.postal}
+                        onChange={e => lookupPostal(e.target.value)}
+                        placeholder="〒1234567 または 123-4567"
+                        className="text-[13px]"
+                        maxLength={8}
+                        data-testid="input-clinic-postal"
+                      />
                     </div>
                     <div className="space-y-1.5">
                       <Label className="text-[11px] font-mono text-muted-foreground tracking-[1px]">電話番号</Label>
