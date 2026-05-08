@@ -347,9 +347,21 @@ export function SmartphoneView({
           )}
 
           <div className="flex items-center gap-2.5 mb-3">
-            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-primary to-chart-3 flex items-center justify-center">
-              <User className="w-5 h-5 text-primary-foreground" />
-            </div>
+            {(() => {
+              const rank = getRank(visitCount);
+              return (
+                <div
+                  className="w-10 h-10 rounded-full flex items-center justify-center"
+                  style={{
+                    background: rank?.gradient ?? "linear-gradient(135deg,#0a3560,#061828)",
+                    border: `2px solid ${rank?.border ?? "#334155"}`,
+                    boxShadow: rank ? `0 0 10px ${rank.glow}60` : undefined,
+                  }}
+                >
+                  <User className="w-5 h-5 text-white/90" />
+                </div>
+              );
+            })()}
             <div>
               <p className="text-[14px] font-bold text-foreground" data-testid="text-phone-patient-name">{profile?.name_kana ? `${profile.name_kana} さん` : "---"}</p>
               <p className="text-[10px] text-muted-foreground flex items-center gap-1">
