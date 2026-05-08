@@ -378,24 +378,46 @@ export function SmartphoneView({
             ))}
           </div>
 
-          {!healthSynced ? (
-            <Button
-              variant="outline"
-              className="w-full mb-3 border-primary/30 text-primary"
-              size="sm"
-              onClick={onSyncHealth}
-              disabled={healthSyncing}
-              data-testid="button-phone-sync-health"
-            >
-              {healthSyncing ? (
-                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> 同期中...</>
-              ) : (
-                <><Activity className="w-3.5 h-3.5" /> Apple HealthKit を接続する</>
-              )}
-            </Button>
+          {!connectedSource ? (
+            <div className="mb-3 space-y-1.5">
+              <p className="text-[9px] text-muted-foreground text-center mb-1.5">健康データを連携して記録を自動取得</p>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  onClick={connectHealthKit}
+                  disabled={healthSyncing}
+                  data-testid="button-phone-sync-healthkit"
+                  className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border border-border bg-card hover:border-primary/40 hover:bg-primary/5 transition-all disabled:opacity-50"
+                >
+                  {healthSyncing ? (
+                    <Loader2 className="w-4 h-4 animate-spin text-primary" />
+                  ) : (
+                    <div className="w-6 h-6 rounded-md bg-gradient-to-br from-rose-400 to-pink-600 flex items-center justify-center">
+                      <Heart className="w-3.5 h-3.5 text-white" />
+                    </div>
+                  )}
+                  <span className="text-[10px] font-medium text-foreground leading-tight text-center">Apple<br />ヘルスケア</span>
+                  <span className="text-[9px] text-muted-foreground">iOS 向け</span>
+                </button>
+                <button
+                  onClick={connectGoogleFit}
+                  disabled={healthSyncing}
+                  data-testid="button-phone-sync-googlefit"
+                  className="flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border border-border bg-card hover:border-blue-400/40 hover:bg-blue-500/5 transition-all disabled:opacity-50"
+                >
+                  <div className="w-6 h-6 rounded-md bg-gradient-to-br from-blue-400 to-green-500 flex items-center justify-center">
+                    <Activity className="w-3.5 h-3.5 text-white" />
+                  </div>
+                  <span className="text-[10px] font-medium text-foreground leading-tight text-center">Google<br />フィット</span>
+                  <span className="text-[9px] text-muted-foreground">Android 向け</span>
+                </button>
+              </div>
+            </div>
           ) : (
             <p className="text-[10px] text-primary text-center mb-2.5 flex items-center justify-center gap-1">
-              <Check className="w-3 h-3" /> Apple HealthKit 連携済 · 自動同期 ON
+              <Check className="w-3 h-3" />
+              {connectedSource === "healthkit" && "Apple ヘルスケア連携済 · 自動同期 ON"}
+              {connectedSource === "googlefit" && "Google フィット連携済 · 自動同期 ON"}
+              {connectedSource === "mock" && "ヘルスデータ連携済 · 自動同期 ON"}
             </p>
           )}
 
