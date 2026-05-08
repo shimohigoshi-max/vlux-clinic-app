@@ -412,9 +412,6 @@ export default function ClinicApp() {
         </div>
         <div className="flex items-center gap-3">
           <span className="text-[10px] font-mono text-muted-foreground/60 tracking-[2px] hidden sm:block">iPAD MODE</span>
-          <a href="/patient" className="text-[11px] text-muted-foreground hover:text-primary transition-colors font-mono tracking-wider" data-testid="link-to-patient">
-            患者ビュー →
-          </a>
         </div>
       </header>
 
