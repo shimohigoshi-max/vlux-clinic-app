@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { IPadView } from "@/components/ipad-view";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import type {
@@ -93,6 +93,66 @@ async function callTranscribe(wavBlob: Blob, speaker: "teacher" | "patient"): Pr
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "transcription failed");
   return data.text as string;
+}
+
+type TickerItem = {
+  id: string;
+  type: "unsent" | "booking" | "ec";
+  label: string;
+};
+
+const TICKER_ITEMS: TickerItem[] = [
+  { id: "1", type: "unsent",  label: "📩 未送信：田中 花子さんへのカルテメッセージが未送信です" },
+  { id: "2", type: "booking", label: "📅 新規予約：鈴木 一郎さん — 明日 10:30（腰痛フォロー）" },
+  { id: "3", type: "unsent",  label: "📩 未送信：山本 次郎さんへのホームケア案内が未送信です" },
+  { id: "4", type: "ec",      label: "🛒 通販売上：今月の売上集計は準備中です（フェーズ２で公開予定）" },
+  { id: "5", type: "booking", label: "📅 新規予約：佐藤 美咲さん — 明後日 14:00（初診）" },
+];
+
+function NotificationTicker() {
+  const items = TICKER_ITEMS;
+  const colorMap: Record<TickerItem["type"], string> = {
+    unsent:  "text-amber-400",
+    booking: "text-primary",
+    ec:      "text-muted-foreground/50",
+  };
+
+  const separator = <span className="mx-6 text-muted-foreground/30 select-none">◆</span>;
+  const content = items.map((item, i) => (
+    <span key={item.id} className={`whitespace-nowrap ${colorMap[item.type]}`}>
+      {item.label}
+      {i < items.length - 1 && separator}
+    </span>
+  ));
+
+  return (
+    <div className="relative overflow-hidden bg-card/60 border-b border-border h-7 flex items-center">
+      <style>{`
+        @keyframes vlux-ticker {
+          0%   { transform: translateX(100vw); }
+          100% { transform: translateX(-100%); }
+        }
+        .vlux-ticker-track {
+          display: inline-flex;
+          animation: vlux-ticker 40s linear infinite;
+          will-change: transform;
+        }
+        .vlux-ticker-track:hover {
+          animation-play-state: paused;
+        }
+      `}</style>
+      <span className="flex-shrink-0 z-10 px-2 font-mono text-[9px] tracking-[2px] text-primary/70 bg-card/60 border-r border-border h-full flex items-center select-none">
+        INFO
+      </span>
+      <div className="overflow-hidden flex-1 h-full flex items-center">
+        <span className="vlux-ticker-track text-[11px] font-mono gap-0">
+          {content}
+          {separator}
+          {content}
+        </span>
+      </div>
+    </div>
+  );
 }
 
 export default function ClinicApp() {
@@ -357,6 +417,8 @@ export default function ClinicApp() {
           </a>
         </div>
       </header>
+
+      <NotificationTicker />
 
       <IPadView
         ipadTab={ipadTab}
