@@ -282,6 +282,8 @@ export async function registerRoutes(
         formData.append("file", audioBlob, `${speaker}.${ext}`);
         formData.append("model", "whisper-1");
         formData.append("language", "ja");
+        formData.append("response_format", "verbose_json");
+        formData.append("timestamp_granularities[]", "word");
         formData.append("prompt",
           "これは整骨院・接骨院での施術会話です。" +
           "九州・鹿児島・博多・長崎・久留米・北九州の方言が含まれます。" +
@@ -373,9 +375,36 @@ export async function registerRoutes(
           if (whisperRes.status === 401) return res.status(500).json({ error: "APIキーを確認してください" });
           return res.status(500).json({ error: "文字起こしに失敗しました。再試行してください" });
         }
-        const data = await whisperRes.json() as { text: string };
+        const data = await whisperRes.json() as {
+          text: string;
+          words?: Array<{ word: string; start: number; end: number; probability: number }>;
+        };
         console.log(`[whisper] ${speaker}: ${data.text.substring(0, 80)}...`);
-        res.json({ text: data.text });
+
+        // Mark low-confidence words with [[?:word]] markers
+        let resultText = data.text;
+        if (data.words && data.words.length > 0) {
+          const UNCLEAR_THRESHOLD = 0.5;
+          let markedText = "";
+          let unclearBuffer = "";
+          for (const w of data.words) {
+            if (w.probability < UNCLEAR_THRESHOLD) {
+              unclearBuffer += w.word;
+            } else {
+              if (unclearBuffer) {
+                markedText += `[[?:${unclearBuffer.trim()}]]`;
+                unclearBuffer = "";
+              }
+              markedText += w.word;
+            }
+          }
+          if (unclearBuffer) {
+            markedText += `[[?:${unclearBuffer.trim()}]]`;
+          }
+          resultText = markedText;
+        }
+
+        res.json({ text: resultText });
       } catch (e) {
         console.error("[whisper] exception:", e);
         res.status(500).json({ error: "通信エラーが発生しました。再試行してください" });

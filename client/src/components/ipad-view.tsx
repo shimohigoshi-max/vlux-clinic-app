@@ -37,6 +37,21 @@ const toKatakana = (str: string) =>
 
 const normalizeJa = (str: string) => toKatakana(str.trim().toLowerCase());
 
+function renderUnclearText(text: string): React.ReactNode {
+  const parts = text.split(/(\[\[\?:[^\]]*\]\])/g);
+  return parts.map((part, i) => {
+    const m = part.match(/^\[\[\?:(.*)\]\]$/);
+    if (m) {
+      return (
+        <span key={i} className="text-red-500 font-bold" title="不明瞭・聞き取り困難">
+          {m[1] || "〔不明〕"}
+        </span>
+      );
+    }
+    return <span key={i}>{part}</span>;
+  });
+}
+
 function parseFollowUpDays(text: string): number {
   const s = text.replace(/\s/g, "");
   const week = s.match(/(\d+)[週週](?:間)?後?/);
@@ -759,16 +774,16 @@ export function IPadView(props: IPadViewProps) {
                 {preTranscript && (
                   <>
                     <span className="text-primary font-bold">【施術前】</span>{"\n"}
-                    <span className="text-cyan-400">先生：</span>{preTranscript.teacher}{"\n"}
-                    <span className="text-amber-400">患者：</span>{preTranscript.patient}
+                    <span className="text-cyan-400">先生：</span>{renderUnclearText(preTranscript.teacher)}{"\n"}
+                    <span className="text-amber-400">患者：</span>{renderUnclearText(preTranscript.patient)}
                   </>
                 )}
                 {preTranscript && postTranscript && <>{"\n\n"}</>}
                 {postTranscript && (
                   <>
                     <span className="text-primary font-bold">【施術後】</span>{"\n"}
-                    <span className="text-cyan-400">先生：</span>{postTranscript.teacher}{"\n"}
-                    <span className="text-amber-400">患者：</span>{postTranscript.patient}
+                    <span className="text-cyan-400">先生：</span>{renderUnclearText(postTranscript.teacher)}{"\n"}
+                    <span className="text-amber-400">患者：</span>{renderUnclearText(postTranscript.patient)}
                   </>
                 )}
               </div>
