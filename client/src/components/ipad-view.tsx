@@ -458,15 +458,15 @@ export function IPadView(props: IPadViewProps) {
 
   // ── Tabs (role-filtered) ──────────────────────────────────────────
   const allTabs = [
-    { id: "patients",    label: "患者選択",   icon: Users,      roles: ["owner", "staff", "reception"] },
-    { id: "schedule",    label: "予約管理",   icon: CalendarDays, roles: ["owner", "staff", "reception"] },
-    { id: "voice",       label: "音声入力",   icon: Mic,        roles: ["owner", "staff"] },
-    { id: "karte",       label: "カルテ",     icon: FileText,   roles: ["owner", "staff"] },
-    { id: "visits",      label: "治療履歴",   icon: History,    roles: ["owner", "staff", "reception"] },
-    { id: "history",     label: "相関分析",   icon: BarChart3,  roles: ["owner", "staff"] },
-    ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart, roles: ["owner", "staff"] }] : []),
-    { id: "ec-sales",    label: "通販売上",   icon: ShoppingCart, roles: ["owner"] },
-    { id: "coupon-admin",label: "クーポン確認", icon: Ticket,   roles: ["owner", "reception"] },
+    { id: "patients",    label: "患者選択",   icon: Users,      roles: ["owner", "staff", "reception"], comingSoon: false },
+    { id: "schedule",    label: "予約管理",   icon: CalendarDays, roles: ["owner", "staff", "reception"], comingSoon: false },
+    { id: "voice",       label: "音声入力",   icon: Mic,        roles: ["owner", "staff"], comingSoon: false },
+    { id: "karte",       label: "カルテ",     icon: FileText,   roles: ["owner", "staff"], comingSoon: false },
+    { id: "visits",      label: "治療履歴",   icon: History,    roles: ["owner", "staff", "reception"], comingSoon: false },
+    ...(healthSynced ? [{ id: "health", label: "健康データ", icon: Heart, roles: ["owner", "staff"], comingSoon: false }] : []),
+    { id: "coupon-admin",label: "クーポン確認", icon: Ticket,   roles: ["owner", "reception"], comingSoon: false },
+    { id: "history",     label: "相関分析",   icon: BarChart3,  roles: ["owner", "staff"], comingSoon: true },
+    { id: "ec-sales",    label: "通販売上",   icon: ShoppingCart, roles: ["owner"], comingSoon: true },
   ];
   const tabs = allTabs.filter(t => t.roles.includes(currentRole));
 
@@ -534,7 +534,7 @@ export function IPadView(props: IPadViewProps) {
 
       {/* Tabs */}
       <div className="flex border-b border-border mb-5 overflow-x-auto">
-        {tabs.map(t => (
+        {tabs.filter(t => !t.comingSoon).map(t => (
           <button
             key={t.id}
             onClick={() => onIpadTabChange(t.id)}
@@ -547,6 +547,20 @@ export function IPadView(props: IPadViewProps) {
             {t.label}
           </button>
         ))}
+        {/* Coming Soon tabs — pushed to the right */}
+        <div className="ml-auto flex items-center">
+          {tabs.filter(t => t.comingSoon).map(t => (
+            <span
+              key={t.id}
+              title="準備中"
+              className="flex items-center gap-1.5 whitespace-nowrap px-3 py-2.5 text-[11px] tracking-wider border-b-2 border-transparent text-muted-foreground/30 cursor-default select-none"
+              data-testid={`tab-ipad-${t.id}`}
+            >
+              <t.icon className="w-3.5 h-3.5" />
+              {t.label}
+            </span>
+          ))}
+        </div>
       </div>
 
       {/* ── 患者選択 ───────────────────────────────────────────────── */}
