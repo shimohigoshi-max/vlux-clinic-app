@@ -17,6 +17,7 @@ import {
   UserCheck, Save, RefreshCw, Edit3, Plus, Trash2, AlertCircle, History, UserPlus, X,
   MessageSquare, Smartphone, CheckCircle2, XCircle, Ticket, CalendarDays, ChevronLeft, ChevronRight as ChevronRightIcon,
   Settings, Building2, Bell, Palette, Download,
+  CalendarCheck, ArrowRight,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
 import type {
@@ -2118,259 +2119,465 @@ function KarteHistoryTab({ karteHistory, onSendToPatient, karteSaved }: { karteH
   );
 }
 
-function ScheduleTab({ visits, patientMap, clinicName }: {
+type BookingStage = "new" | "alt_sent" | "patient_replied" | "confirmed" | "closed";
+
+interface BookingAltSlot { id: string; date: string; time: string; }
+interface BookingMessage {
+  from: "clinic" | "patient";
+  text: string;
+  time: string;
+  altSlots?: BookingAltSlot[];
+  chosenSlotId?: string;
+  type?: "text" | "alt_proposal" | "alt_choice" | "confirmed";
+}
+interface BookingRequest {
+  id: string;
+  patientName: string;
+  requestedDate: string;
+  requestedTime: string;
+  treatmentType: string;
+  note: string;
+  stage: BookingStage;
+  messages: BookingMessage[];
+  receivedAt: string;
+}
+
+const BOOKING_STAGE_DOT: Record<BookingStage, string> = {
+  new: "bg-amber-400",
+  alt_sent: "bg-blue-400",
+  patient_replied: "bg-violet-400 animate-pulse",
+  confirmed: "bg-primary",
+  closed: "bg-muted-foreground/40",
+};
+const BOOKING_STAGE_LABEL: Record<BookingStage, string> = {
+  new: "新着",
+  alt_sent: "代替提案済",
+  patient_replied: "患者返答あり",
+  confirmed: "予約確定",
+  closed: "対応済",
+};
+const BOOKING_STAGE_COLOR: Record<BookingStage, string> = {
+  new: "text-amber-400 bg-amber-400/10 border-amber-400/30",
+  alt_sent: "text-blue-400 bg-blue-400/10 border-blue-400/30",
+  patient_replied: "text-violet-400 bg-violet-400/10 border-violet-400/30",
+  confirmed: "text-primary bg-primary/10 border-primary/30",
+  closed: "text-muted-foreground bg-muted/10 border-border",
+};
+
+const INITIAL_BOOKING_REQUESTS: BookingRequest[] = [
+  {
+    id: "1",
+    patientName: "田中 花子",
+    requestedDate: "5/13（水）",
+    requestedTime: "10:00",
+    treatmentType: "定期施術",
+    note: "先週から右肩が痛い。早めに来たい。",
+    stage: "new",
+    receivedAt: "14分前",
+    messages: [],
+  },
+  {
+    id: "2",
+    patientName: "山田 太郎",
+    requestedDate: "5/14（木）",
+    requestedTime: "14:00",
+    treatmentType: "初診",
+    note: "腰痛で歩くのが辛い",
+    stage: "alt_sent",
+    receivedAt: "1時間前",
+    messages: [
+      {
+        from: "clinic",
+        text: "ご希望の日時は施術者の都合により対応が難しい状況です。以下の候補日はいかがでしょうか？",
+        time: "10:32",
+        type: "alt_proposal",
+        altSlots: [
+          { id: "a", date: "5/15（金）", time: "10:00" },
+          { id: "b", date: "5/15（金）", time: "14:30" },
+          { id: "c", date: "5/16（土）", time: "11:00" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "3",
+    patientName: "鈴木 美咲",
+    requestedDate: "5/11（月）",
+    requestedTime: "11:00",
+    treatmentType: "再診",
+    note: "",
+    stage: "patient_replied",
+    receivedAt: "昨日",
+    messages: [
+      {
+        from: "clinic",
+        text: "以下の候補日はいかがでしょうか？",
+        time: "昨日 09:15",
+        type: "alt_proposal",
+        altSlots: [
+          { id: "a", date: "5/15（金）", time: "10:00" },
+          { id: "b", date: "5/15（金）", time: "14:30" },
+        ],
+      },
+      {
+        from: "patient",
+        text: "5/15（金）14:30 でお願いします！",
+        time: "昨日 11:42",
+        type: "alt_choice",
+        chosenSlotId: "b",
+      },
+    ],
+  },
+  {
+    id: "4",
+    patientName: "佐藤 健一",
+    requestedDate: "5/10（日）",
+    requestedTime: "09:00",
+    treatmentType: "定期施術",
+    note: "膝のリハビリ継続",
+    stage: "confirmed",
+    receivedAt: "2日前",
+    messages: [
+      {
+        from: "clinic",
+        text: "ご予約を承りました。ご来院をお待ちしております。",
+        time: "2日前",
+        type: "confirmed",
+      },
+    ],
+  },
+];
+
+const PRESET_BOOKING_MESSAGES = [
+  "ご希望の日時は施術者の都合により対応が難しい状況です。以下の候補日はいかがでしょうか？",
+  "ご連絡ありがとうございます。大変恐れ入りますが、ご希望の日は満員となっております。",
+  "ご予約を承りました。ご来院をお待ちしております。",
+];
+
+function ScheduleTab({ clinicName }: {
   visits: AdminVisit[];
   patientMap: Record<string, string>;
   clinicName: string;
 }) {
-  const [weekOffset, setWeekOffset] = useState(0);
+  const [requests, setRequests] = useState<BookingRequest[]>(INITIAL_BOOKING_REQUESTS);
+  const [selectedId, setSelectedId] = useState("2");
+  const [altDraft, setAltDraft] = useState<BookingAltSlot[]>([]);
+  const [msgText, setMsgText] = useState("");
+  const [showPresets, setShowPresets] = useState(false);
+  const [altDate, setAltDate] = useState("");
+  const [altTime, setAltTime] = useState("");
+  const [addingAlt, setAddingAlt] = useState(false);
 
-  const appointments = useMemo(() => {
-    return visits
-      .filter(v => v.soap_note?.follow_up)
-      .map(v => {
-        const days = parseFollowUpDays(v.soap_note!.follow_up!);
-        const d = new Date(v.visited_at);
-        d.setHours(0, 0, 0, 0);
-        d.setDate(d.getDate() + days);
-        return {
-          patient_name: patientMap[v.patient_id] ?? "不明な患者",
-          patient_id: v.patient_id,
-          chief_complaint: v.chief_complaint,
-          follow_up_text: v.soap_note!.follow_up!,
-          expected_date: d,
-          visit_id: v.id,
-        };
-      })
-      .sort((a, b) => a.expected_date.getTime() - b.expected_date.getTime());
-  }, [visits, patientMap]);
+  const selected = requests.find(r => r.id === selectedId)!;
 
-  const weekDays = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dow = today.getDay();
-    const monday = new Date(today);
-    monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1) + weekOffset * 7);
-    return Array.from({ length: 7 }, (_, i) => {
-      const d = new Date(monday);
-      d.setDate(monday.getDate() + i);
-      return d;
-    });
-  }, [weekOffset]);
-
-  const todayBase = (() => { const d = new Date(); d.setHours(0,0,0,0); return d; })();
-  const isSameDay = (a: Date, b: Date) =>
-    a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
-  const isToday = (d: Date) => isSameDay(d, todayBase);
-  const isPast = (d: Date) => d < todayBase;
-  const getAppts = (day: Date) => appointments.filter(a => isSameDay(a.expected_date, day));
-  const todayAppts = getAppts(todayBase);
-  const dayNames = ["月", "火", "水", "木", "金", "土", "日"];
-  const weekLabel = `${weekDays[0].getMonth()+1}/${weekDays[0].getDate()} — ${weekDays[6].getMonth()+1}/${weekDays[6].getDate()}`;
-  const getSlot = (idx: number) => `${(9 + idx).toString().padStart(2,"0")}:00`;
-
-  const exportAppointmentsCSV = () => {
-    const header = ["予約日", "患者名", "主訴", "フォローアップ内容"];
-    const rows = appointments.map(a => [
-      `${a.expected_date.getFullYear()}/${(a.expected_date.getMonth()+1).toString().padStart(2,"0")}/${a.expected_date.getDate().toString().padStart(2,"0")}`,
-      a.patient_name,
-      a.chief_complaint ?? "",
-      a.follow_up_text ?? "",
-    ]);
-    const csv = [header, ...rows]
-      .map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(","))
-      .join("\n");
-    const bom = "\uFEFF";
-    const blob = new Blob([bom + csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `予約一覧_${new Date().toISOString().slice(0,10)}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+  const updateReq = (id: string, patch: Partial<BookingRequest>) => {
+    setRequests(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
   };
 
+  const addMsg = (msg: BookingMessage) => {
+    const req = requests.find(r => r.id === selectedId)!;
+    updateReq(selectedId, { messages: [...req.messages, msg] });
+  };
+
+  const sendAltProposal = () => {
+    if (altDraft.length === 0) return;
+    addMsg({
+      from: "clinic",
+      text: msgText || PRESET_BOOKING_MESSAGES[0],
+      time: "今",
+      type: "alt_proposal",
+      altSlots: altDraft,
+    });
+    updateReq(selectedId, { stage: "alt_sent" });
+    setAltDraft([]);
+    setMsgText("");
+  };
+
+  const confirmBooking = () => {
+    addMsg({ from: "clinic", text: "ご予約を承りました。ご来院をお待ちしております。", time: "今", type: "confirmed" });
+    updateReq(selectedId, { stage: "confirmed" });
+  };
+
+  const addAltSlot = () => {
+    if (!altDate || !altTime) return;
+    setAltDraft(prev => [...prev, { id: String(Date.now()), date: altDate, time: altTime }]);
+    setAltDate(""); setAltTime(""); setAddingAlt(false);
+  };
+
+  const newCount = requests.filter(r => r.stage === "new").length;
+  const replyCount = requests.filter(r => r.stage === "patient_replied").length;
+
   return (
-    <div data-testid="schedule-tab" className="space-y-4">
-      {/* ヘッダー */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-2">
-          <CalendarDays className="w-4 h-4 text-primary" />
-          <span className="font-mono text-[13px] text-foreground font-bold tracking-wider">予約管理</span>
-          <span className="text-[11px] text-muted-foreground">{clinicName}</span>
-        </div>
-        <div className="flex items-center gap-1.5">
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setWeekOffset(o => o - 1)} data-testid="button-schedule-prev">
-            <ChevronLeft className="w-4 h-4" />
-          </Button>
-          <span className="font-mono text-[12px] text-foreground min-w-[110px] text-center">{weekLabel}</span>
-          <Button variant="ghost" size="sm" className="h-8 px-2" onClick={() => setWeekOffset(o => o + 1)} data-testid="button-schedule-next">
-            <ChevronRightIcon className="w-4 h-4" />
-          </Button>
-          <Button variant="outline" size="sm" className="text-[11px] h-8" onClick={() => setWeekOffset(0)} data-testid="button-schedule-today">
-            今週
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            className="text-[11px] h-8 gap-1"
-            onClick={exportAppointmentsCSV}
-            disabled={appointments.length === 0}
-            data-testid="button-schedule-csv"
-          >
-            <Download className="w-3.5 h-3.5" />
-            CSV出力
-          </Button>
-        </div>
-      </div>
+    <div data-testid="schedule-tab" className="flex gap-4 h-[calc(100vh-160px)] min-h-[500px]">
 
-      {/* 本日のサマリー */}
-      {weekOffset === 0 && (
-        <div className="bg-primary/5 border border-primary/20 rounded-lg p-3" data-testid="schedule-today-summary">
-          <div className="flex items-center gap-2 mb-2">
-            <div className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="text-[11px] font-mono text-primary tracking-wider">本日の予約</span>
-            <Badge variant="outline" className="border-primary/30 text-primary text-[10px]">{todayAppts.length}件</Badge>
-          </div>
-          {todayAppts.length === 0 ? (
-            <p className="text-[12px] text-muted-foreground">本日の予約はありません</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {todayAppts.map((a, i) => (
-                <div key={a.visit_id} className="bg-primary/10 rounded-md px-2.5 py-1.5 flex items-center gap-2" data-testid={`schedule-today-appt-${a.visit_id}`}>
-                  <span className="font-mono text-[10px] text-primary/70">{getSlot(i)}</span>
-                  <span className="text-[12px] text-foreground font-medium">{a.patient_name}</span>
-                  {a.chief_complaint && <span className="text-[10px] text-muted-foreground">/ {a.chief_complaint}</span>}
-                </div>
-              ))}
+      {/* ── 左列: リクエスト一覧 ── */}
+      <div className="w-56 shrink-0 flex flex-col border border-border rounded-xl overflow-hidden bg-card/40">
+        <div className="px-3 py-2.5 border-b border-border bg-card/60">
+          <div className="flex items-center justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <CalendarDays className="w-3.5 h-3.5 text-primary" />
+              <span className="font-mono text-[11px] text-foreground font-bold tracking-wider">予約リクエスト</span>
             </div>
-          )}
-        </div>
-      )}
-
-      {/* 週次グリッド */}
-      <div className="grid grid-cols-7 gap-1.5" data-testid="schedule-week-grid">
-        {weekDays.map((day, di) => {
-          const appts = getAppts(day);
-          const todayFlag = isToday(day);
-          const pastFlag = isPast(day);
-          const isSun = di === 6;
-          const isSat = di === 5;
-          return (
-            <div
-              key={di}
-              className={`rounded-lg border p-2 min-h-[170px] flex flex-col ${
-                todayFlag
-                  ? "border-primary/60 bg-primary/5"
-                  : isSat || isSun
-                  ? "border-border/50 bg-card/20"
-                  : "border-border bg-card/40"
-              }`}
-              data-testid={`schedule-col-${di}`}
-            >
-              {/* 曜日ヘッダー */}
-              <div className="flex items-end justify-between mb-1.5">
-                <span className={`text-[10px] font-mono font-bold ${
-                  todayFlag ? "text-primary" : isSun ? "text-red-400" : isSat ? "text-blue-400" : "text-muted-foreground"
-                }`}>{dayNames[di]}</span>
-                <span className={`text-[15px] font-mono font-bold ${
-                  todayFlag ? "text-primary" : pastFlag ? "text-muted-foreground/40" : "text-foreground"
-                }`}>{day.getDate()}</span>
-              </div>
-              {todayFlag && (
-                <Badge className="mb-1.5 text-[8px] py-0 px-1 bg-primary/20 text-primary border border-primary/30 self-start">TODAY</Badge>
+            <div className="flex gap-1">
+              {newCount > 0 && (
+                <span className="bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full">{newCount}</span>
               )}
-
-              {/* 予約カード */}
-              <div className="flex-1 space-y-1 overflow-hidden">
-                {appts.length === 0 ? (
-                  <div className={`flex items-center justify-center h-12 ${pastFlag ? "opacity-20" : "opacity-25"}`}>
-                    <span className="text-[10px] text-muted-foreground">—</span>
-                  </div>
-                ) : (
-                  appts.slice(0, 4).map((a, i) => (
-                    <div
-                      key={a.visit_id}
-                      className={`rounded px-1.5 py-1 leading-tight ${
-                        todayFlag
-                          ? "bg-primary/20 border border-primary/30"
-                          : pastFlag
-                          ? "bg-muted/20 border border-border/40 opacity-50"
-                          : "bg-background/60 border border-border"
-                      }`}
-                      data-testid={`schedule-appt-${a.visit_id}`}
-                    >
-                      <div className="font-mono text-[8px] text-primary/60 mb-0.5">{getSlot(i)}</div>
-                      <div className="text-[10px] font-medium text-foreground truncate">{a.patient_name}</div>
-                      {a.chief_complaint && (
-                        <div className="text-[9px] text-muted-foreground truncate">{a.chief_complaint}</div>
-                      )}
-                    </div>
-                  ))
-                )}
-                {appts.length > 4 && (
-                  <div className="text-[9px] text-muted-foreground text-center">+{appts.length - 4}件</div>
-                )}
-              </div>
-
-              {appts.length > 0 && (
-                <div className="mt-1.5 border-t border-border/40 pt-1 text-center">
-                  <span className="text-[9px] font-mono text-muted-foreground">{appts.length}件</span>
-                </div>
+              {replyCount > 0 && (
+                <span className="bg-violet-500 text-white text-[9px] font-bold px-1.5 py-0.5 rounded-full">{replyCount}</span>
               )}
             </div>
-          );
-        })}
-      </div>
-
-      {/* 全予約一覧 */}
-      {appointments.length > 0 && (
-        <div className="border border-border rounded-lg overflow-hidden">
-          <div className="bg-card/80 px-3 py-2 border-b border-border flex items-center gap-2">
-            <CalendarDays className="w-3.5 h-3.5 text-primary" />
-            <span className="text-[11px] font-mono text-foreground tracking-wider">予約一覧</span>
-            <Badge variant="outline" className="text-[10px]">{appointments.length}件</Badge>
           </div>
+          <p className="text-[9px] text-muted-foreground">{clinicName}</p>
+        </div>
+        <ScrollArea className="flex-1">
           <div className="divide-y divide-border/50">
-            {appointments.map(a => {
-              const past = isPast(a.expected_date);
-              const tod = isToday(a.expected_date);
-              return (
-                <div key={a.visit_id} className={`flex items-center gap-3 px-3 py-2 ${past ? "opacity-50" : ""}`} data-testid={`schedule-list-${a.visit_id}`}>
-                  <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${tod ? "bg-primary animate-pulse" : past ? "bg-muted-foreground/30" : "bg-chart-3"}`} />
-                  <div className="font-mono text-[10px] text-muted-foreground w-[80px] shrink-0">
-                    {a.expected_date.getMonth()+1}/{a.expected_date.getDate()}（{dayNames[a.expected_date.getDay() === 0 ? 6 : a.expected_date.getDay() - 1]}）
+            {requests.map(req => (
+              <button
+                key={req.id}
+                onClick={() => { setSelectedId(req.id); setAltDraft([]); setMsgText(""); setAddingAlt(false); }}
+                className={`w-full text-left px-3 py-2.5 transition-colors border-l-2 ${
+                  selectedId === req.id
+                    ? "bg-primary/10 border-l-primary"
+                    : "hover:bg-muted/30 border-l-transparent"
+                }`}
+              >
+                <div className="flex items-center gap-1.5 mb-0.5">
+                  <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${BOOKING_STAGE_DOT[req.stage]}`} />
+                  <span className="font-medium text-[12px] text-foreground truncate">{req.patientName}</span>
+                </div>
+                <p className="text-[10px] text-muted-foreground ml-3">{BOOKING_STAGE_LABEL[req.stage]}</p>
+                <p className="text-[10px] text-muted-foreground/60 ml-3 mt-0.5">
+                  <Clock className="w-2.5 h-2.5 inline mr-0.5" />{req.requestedDate} {req.requestedTime}
+                </p>
+              </button>
+            ))}
+          </div>
+        </ScrollArea>
+      </div>
+
+      {/* ── 右列: 会話 + アクション ── */}
+      <div className="flex-1 flex flex-col border border-border rounded-xl overflow-hidden bg-card/40 min-w-0">
+
+        {/* 患者ヘッダー */}
+        <div className="px-4 py-2.5 border-b border-border bg-card/60 flex items-center gap-3 shrink-0">
+          <div className="w-8 h-8 rounded-full bg-primary/20 border border-primary/30 flex items-center justify-center shrink-0">
+            <span className="text-[11px] font-bold text-primary">{selected.patientName[0]}</span>
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="font-semibold text-[13px] text-foreground">{selected.patientName}</div>
+            <div className="text-[10px] text-muted-foreground">{selected.treatmentType}</div>
+          </div>
+          <Badge
+            variant="outline"
+            className={`text-[10px] shrink-0 ${BOOKING_STAGE_COLOR[selected.stage]}`}
+          >
+            {BOOKING_STAGE_LABEL[selected.stage]}
+          </Badge>
+        </div>
+
+        {/* 会話エリア */}
+        <ScrollArea className="flex-1 px-4 py-3">
+          <div className="space-y-3">
+
+            {/* 元リクエストバブル */}
+            <div className="flex justify-start">
+              <div className="max-w-[80%]">
+                <p className="text-[9px] text-muted-foreground mb-1 ml-1">{selected.patientName} ・ {selected.receivedAt}</p>
+                <div className="bg-muted/40 border border-border rounded-2xl rounded-tl-none px-3 py-2.5">
+                  <p className="text-[10px] text-primary font-medium mb-1.5">📅 予約リクエスト</p>
+                  <div className="flex gap-4 text-[12px] mb-1">
+                    <div>
+                      <span className="text-[9px] text-muted-foreground block">希望日時</span>
+                      <span className="font-medium text-foreground">{selected.requestedDate} {selected.requestedTime}</span>
+                    </div>
+                    <div>
+                      <span className="text-[9px] text-muted-foreground block">種別</span>
+                      <span className="text-primary">{selected.treatmentType}</span>
+                    </div>
                   </div>
-                  <div className="text-[12px] font-medium text-foreground">{a.patient_name}</div>
-                  {a.chief_complaint && <div className="text-[11px] text-muted-foreground truncate">{a.chief_complaint}</div>}
-                  {tod && <Badge className="ml-auto text-[8px] bg-primary/20 text-primary border-primary/30 border py-0">本日</Badge>}
-                  {!tod && !past && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="ml-auto h-6 px-2 text-[10px] text-primary hover:bg-primary/10"
-                      onClick={() => window.open(buildGCalUrl(a.follow_up_text, clinicName), "_blank")}
-                      data-testid={`button-gcal-list-${a.visit_id}`}
-                    >
-                      <Calendar className="w-3 h-3 mr-1" />GCal
-                    </Button>
+                  {selected.note && (
+                    <p className="text-[11px] text-muted-foreground italic border-t border-border/50 pt-1.5 mt-1">「{selected.note}」</p>
                   )}
                 </div>
-              );
-            })}
+              </div>
+            </div>
+
+            {/* メッセージ履歴 */}
+            {selected.messages.map((msg, i) => (
+              <div key={i} className={`flex ${msg.from === "clinic" ? "justify-end" : "justify-start"}`}>
+                <div className={`max-w-[80%] ${msg.from === "clinic" ? "items-end" : "items-start"} flex flex-col`}>
+                  <p className={`text-[9px] text-muted-foreground mb-1 ${msg.from === "clinic" ? "text-right mr-1" : "ml-1"}`}>
+                    {msg.from === "clinic" ? clinicName : selected.patientName} ・ {msg.time}
+                  </p>
+                  <div className={`rounded-2xl px-3 py-2.5 text-[12px] ${
+                    msg.from === "clinic"
+                      ? "bg-primary/15 border border-primary/30 rounded-tr-none"
+                      : "bg-muted/40 border border-border rounded-tl-none"
+                  }`}>
+                    <p className="text-foreground mb-1.5">{msg.text}</p>
+
+                    {/* 代替候補 */}
+                    {msg.type === "alt_proposal" && msg.altSlots && (
+                      <div className="space-y-1 mt-1">
+                        {msg.altSlots.map(slot => {
+                          const chosen = selected.messages.some(m => m.type === "alt_choice" && m.chosenSlotId === slot.id);
+                          return (
+                            <div key={slot.id} className={`flex items-center gap-2 px-2.5 py-1.5 rounded-lg border text-[11px] font-medium ${
+                              chosen
+                                ? "bg-violet-500/20 border-violet-500/40 text-violet-300"
+                                : "bg-background/40 border-border text-muted-foreground"
+                            }`}>
+                              <Clock className="w-3 h-3 opacity-70" />
+                              {slot.date} {slot.time}
+                              {chosen && <CheckCircle2 className="w-3 h-3 text-violet-400 ml-auto" />}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {/* 患者選択 */}
+                    {msg.type === "alt_choice" && (
+                      <div className="mt-1 px-2.5 py-1 rounded-lg bg-violet-500/15 border border-violet-500/30 text-[10px] text-violet-300 flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3 h-3" />上記の候補を選択しました
+                      </div>
+                    )}
+
+                    {/* 確定 */}
+                    {msg.type === "confirmed" && (
+                      <div className="mt-1 flex items-center gap-1.5 text-primary text-[10px]">
+                        <CalendarCheck className="w-3.5 h-3.5" /> 予約確定済み
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
-        </div>
-      )}
+        </ScrollArea>
 
-      {appointments.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground" data-testid="schedule-empty">
-          <CalendarDays className="w-8 h-8 mx-auto mb-3 opacity-20" />
-          <p className="text-[13px]">予約データがありません</p>
-          <p className="text-[11px] mt-1">カルテを作成すると、次回来院予定が自動的にここに表示されます</p>
-        </div>
-      )}
+        {/* ── アクションゾーン ── */}
 
-      <p className="text-[9px] text-muted-foreground/40 text-right">※次回来院予定はカルテの「次回来院」テキストから自動計算</p>
+        {/* 新着: 承認 / 対応不可 / 代替提案 */}
+        {selected.stage === "new" && (
+          <div className="border-t border-border p-3 space-y-2.5 shrink-0 bg-card/60">
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1 gap-1.5 h-8 text-[12px]" onClick={confirmBooking}>
+                <CheckCircle2 className="w-3.5 h-3.5" />そのまま承認
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-[12px] text-destructive border-destructive/40 hover:bg-destructive/10"
+                onClick={() => updateReq(selectedId, { stage: "closed" })}>
+                <XCircle className="w-3.5 h-3.5" />対応不可
+              </Button>
+            </div>
+            <div className="bg-muted/30 rounded-lg p-2.5 border border-border space-y-2">
+              <p className="text-[10px] text-muted-foreground font-medium flex items-center gap-1.5">
+                <RefreshCw className="w-3 h-3" /> 代替日時を提案する
+              </p>
+              {/* プリセット文言 */}
+              <div className="relative">
+                <button
+                  onClick={() => setShowPresets(v => !v)}
+                  className="w-full flex items-center justify-between px-2 py-1.5 rounded-md bg-background border border-border text-[11px] text-muted-foreground text-left"
+                >
+                  <span className="truncate">{msgText || "メッセージを選択..."}</span>
+                  <ChevronDown className="w-3 h-3 shrink-0 ml-1" />
+                </button>
+                {showPresets && (
+                  <div className="absolute bottom-full mb-1 left-0 right-0 bg-card border border-border rounded-lg overflow-hidden z-20 shadow-xl">
+                    {PRESET_BOOKING_MESSAGES.map((p, i) => (
+                      <button key={i} onClick={() => { setMsgText(p); setShowPresets(false); }}
+                        className="w-full px-3 py-2 text-left text-[11px] text-foreground hover:bg-muted/50 border-b border-border/50 last:border-0">
+                        {p}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {/* 候補スロット */}
+              <div className="space-y-1">
+                {altDraft.map(s => (
+                  <div key={s.id} className="flex items-center gap-2 px-2 py-1 rounded-md bg-background border border-border text-[11px]">
+                    <Clock className="w-3 h-3 text-muted-foreground" />
+                    <span className="text-foreground">{s.date} {s.time}</span>
+                    <button onClick={() => setAltDraft(prev => prev.filter(x => x.id !== s.id))}
+                      className="ml-auto text-muted-foreground hover:text-destructive">
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              {addingAlt ? (
+                <div className="flex gap-1">
+                  <Input value={altDate} onChange={e => setAltDate(e.target.value)}
+                    placeholder="5/15（金）" className="h-7 text-[11px] flex-1" />
+                  <Input value={altTime} onChange={e => setAltTime(e.target.value)}
+                    placeholder="10:00" className="h-7 text-[11px] w-16" />
+                  <Button size="sm" variant="outline" className="h-7 px-2 text-[11px]" onClick={addAltSlot}>追加</Button>
+                </div>
+              ) : (
+                <button onClick={() => setAddingAlt(true)}
+                  className="w-full flex items-center justify-center gap-1.5 py-1.5 rounded-md border border-dashed border-border text-[11px] text-muted-foreground hover:text-foreground hover:border-muted-foreground/50 transition-colors">
+                  <Plus className="w-3 h-3" /> 候補日時を追加
+                </button>
+              )}
+              <Button size="sm" className="w-full gap-1.5 h-8 text-[12px] bg-blue-600 hover:bg-blue-500"
+                disabled={altDraft.length === 0} onClick={sendAltProposal}>
+                <Send className="w-3.5 h-3.5" /> 患者アプリへ送信
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 代替提案送信済 */}
+        {selected.stage === "alt_sent" && (
+          <div className="border-t border-border p-3 shrink-0 bg-card/60">
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-blue-500/10 border border-blue-500/20 text-[12px] text-blue-400">
+              <Bell className="w-3.5 h-3.5 shrink-0" />
+              代替候補を送信しました。患者の返答をお待ちください。
+            </div>
+          </div>
+        )}
+
+        {/* 患者返答あり */}
+        {selected.stage === "patient_replied" && (
+          <div className="border-t border-border p-3 space-y-2 shrink-0 bg-card/60">
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-[12px] text-violet-300">
+              <MessageSquare className="w-3.5 h-3.5 shrink-0" />
+              患者が候補日時を選択しました。予約を確定しますか？
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" className="flex-1 gap-1.5 h-8 text-[12px]" onClick={confirmBooking}>
+                <CalendarCheck className="w-3.5 h-3.5" /> 予約確定
+              </Button>
+              <Button size="sm" variant="outline" className="gap-1.5 h-8 text-[12px]"
+                onClick={() => updateReq(selectedId, { stage: "alt_sent" })}>
+                <RefreshCw className="w-3.5 h-3.5" /> 再提案
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {/* 予約確定済み */}
+        {selected.stage === "confirmed" && (
+          <div className="border-t border-border p-3 shrink-0 bg-card/60">
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-primary/10 border border-primary/20 text-[12px] text-primary">
+              <CalendarCheck className="w-3.5 h-3.5 shrink-0" />
+              予約確定済み ─ 外部予約システムに登録してください
+            </div>
+          </div>
+        )}
+
+        {/* 対応済み */}
+        {selected.stage === "closed" && (
+          <div className="border-t border-border p-3 shrink-0 bg-card/60">
+            <div className="flex items-center gap-2 p-2.5 rounded-lg bg-muted/30 border border-border text-[12px] text-muted-foreground">
+              <ArrowRight className="w-3.5 h-3.5 shrink-0" />
+              対応済みとしてクローズしました
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
