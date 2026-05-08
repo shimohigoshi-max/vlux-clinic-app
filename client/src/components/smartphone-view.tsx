@@ -9,6 +9,7 @@ import {
   Calendar, Ticket, Loader2, Activity, Trophy, Users, Link,
   Crown, Award, Leaf, TrendingUp, Target, MapPin, AlertCircle,
   RefreshCw, Wifi, WifiOff, Flame, X,
+  Send, CalendarCheck, ChevronDown, MessageSquare, CheckCircle2,
 } from "lucide-react";
 import type { KarteResult, Product, LifeAdvice, SupabaseVisit, SupabaseHealthData, PatientProfile, Coupon } from "@/lib/constants";
 import {
@@ -416,7 +417,7 @@ export function SmartphoneView({
           </div>
         </div>
 
-        <ScrollArea className="h-[400px]">
+        <ScrollArea className="h-[460px]">
           <div className="px-4 py-3">
 
             {phoneTab === "timeline" && (
@@ -489,29 +490,15 @@ export function SmartphoneView({
                       </div>
                     )}
 
-                    <CouponWallet expanded />
+                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} />
 
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      onClick={() => window.open(buildGCalUrl(karte?.follow_up ?? "1週間後", "整骨院"), "_blank")}
-                      data-testid="button-book-appointment"
-                    >
-                      <Calendar className="w-4 h-4" /> Googleカレンダーに予約を追加
-                    </Button>
+                    <CouponWallet expanded />
                   </>
                 ) : (
                   <>
-                    <CouponWallet expanded={false} />
+                    <BookingRequestPanel clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} />
 
-                    <Button
-                      className="w-full"
-                      size="lg"
-                      onClick={() => window.open(buildGCalUrl("1週間後", "整骨院"), "_blank")}
-                      data-testid="button-book-appointment-initial"
-                    >
-                      <Calendar className="w-4 h-4" /> Googleカレンダーに予約を追加
-                    </Button>
+                    <CouponWallet expanded={false} />
 
                     <div className="text-center py-4">
                       <Stethoscope className="w-7 h-7 text-muted-foreground/20 mx-auto mb-2" />
@@ -1029,6 +1016,291 @@ export function SmartphoneView({
       </div>
     </div>
   );
+}
+
+type PatientBookingStage = "idle" | "form" | "sent" | "alt_received" | "alt_accepted" | "confirmed";
+
+interface PatientAltSlot { id: string; date: string; time: string; }
+
+interface BookingFormState {
+  treatmentType: string;
+  preferredDate: string;
+  preferredTime: string;
+  note: string;
+}
+
+const TREATMENT_TYPES = ["定期施術", "再診", "初診", "リハビリ"];
+const TIME_PREFS = ["午前（9:00〜12:00）", "午後（13:00〜17:00）", "夕方（17:00〜19:00）", "時間指定なし"];
+
+const MOCK_ALT_SLOTS: PatientAltSlot[] = [
+  { id: "a", date: "5/15（金）", time: "10:00" },
+  { id: "b", date: "5/15（金）", time: "14:30" },
+  { id: "c", date: "5/16（土）", time: "11:00" },
+];
+
+function BookingRequestPanel({ clinicName }: { clinicName: string }) {
+  const [stage, setStage] = useState<PatientBookingStage>("idle");
+  const [form, setForm] = useState<BookingFormState>({
+    treatmentType: "定期施術",
+    preferredDate: "",
+    preferredTime: "午前（9:00〜12:00）",
+    note: "",
+  });
+  const [selectedAlt, setSelectedAlt] = useState<string | null>(null);
+  const [showTypeMenu, setShowTypeMenu] = useState(false);
+  const [showTimeMenu, setShowTimeMenu] = useState(false);
+
+  const handleSubmit = () => {
+    if (!form.preferredDate) return;
+    setStage("sent");
+    setTimeout(() => setStage("alt_received"), 2000);
+  };
+
+  const handleAltAccept = () => {
+    if (!selectedAlt) return;
+    setStage("alt_accepted");
+    setTimeout(() => setStage("confirmed"), 1500);
+  };
+
+  const chosenSlot = MOCK_ALT_SLOTS.find(s => s.id === selectedAlt);
+
+  if (stage === "idle") {
+    return (
+      <Button
+        className="w-full gap-2"
+        size="lg"
+        onClick={() => setStage("form")}
+        data-testid="button-open-booking-form"
+      >
+        <Calendar className="w-4 h-4" /> 予約リクエストを送る
+      </Button>
+    );
+  }
+
+  if (stage === "form") {
+    return (
+      <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="booking-form">
+        {/* ヘッダー */}
+        <div className="px-4 py-3 border-b border-border bg-primary/5 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Calendar className="w-3.5 h-3.5 text-primary" />
+            <span className="text-[12px] font-medium text-primary">予約リクエスト</span>
+          </div>
+          <button onClick={() => setStage("idle")} className="text-muted-foreground hover:text-foreground">
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+
+        <div className="px-4 py-3 space-y-3">
+          <p className="text-[10px] text-muted-foreground">{clinicName}への予約リクエストを送信します。日時は院内で確認後、確定のご連絡をします。</p>
+
+          {/* 施術種別 */}
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">施術種別</label>
+            <div className="relative">
+              <button
+                onClick={() => setShowTypeMenu(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-background border border-border text-[12px] text-foreground"
+              >
+                {form.treatmentType}
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+              </button>
+              {showTypeMenu && (
+                <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg overflow-hidden z-20 shadow-lg">
+                  {TREATMENT_TYPES.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => { setForm(f => ({ ...f, treatmentType: t })); setShowTypeMenu(false); }}
+                      className={`w-full px-3 py-2 text-left text-[12px] hover:bg-muted/50 border-b border-border/50 last:border-0 ${
+                        form.treatmentType === t ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* 希望日 */}
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">希望日 <span className="text-destructive">*</span></label>
+            <input
+              type="date"
+              value={form.preferredDate}
+              onChange={e => setForm(f => ({ ...f, preferredDate: e.target.value }))}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-[12px] text-foreground focus:outline-none focus:border-primary/60"
+              data-testid="input-booking-date"
+            />
+          </div>
+
+          {/* 希望時間帯 */}
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">希望時間帯</label>
+            <div className="relative">
+              <button
+                onClick={() => setShowTimeMenu(v => !v)}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-lg bg-background border border-border text-[12px] text-foreground"
+              >
+                <span className="truncate">{form.preferredTime}</span>
+                <ChevronDown className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+              </button>
+              {showTimeMenu && (
+                <div className="absolute top-full mt-1 left-0 right-0 bg-card border border-border rounded-lg overflow-hidden z-20 shadow-lg">
+                  {TIME_PREFS.map(t => (
+                    <button
+                      key={t}
+                      onClick={() => { setForm(f => ({ ...f, preferredTime: t })); setShowTimeMenu(false); }}
+                      className={`w-full px-3 py-2 text-left text-[12px] hover:bg-muted/50 border-b border-border/50 last:border-0 ${
+                        form.preferredTime === t ? "text-primary" : "text-foreground"
+                      }`}
+                    >
+                      {t}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* メモ */}
+          <div>
+            <label className="text-[10px] text-muted-foreground block mb-1">症状・メモ（任意）</label>
+            <textarea
+              value={form.note}
+              onChange={e => setForm(f => ({ ...f, note: e.target.value }))}
+              placeholder="例: 先週から右肩が痛い"
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-[12px] text-foreground placeholder:text-muted-foreground/50 focus:outline-none focus:border-primary/60 resize-none"
+              data-testid="input-booking-note"
+            />
+          </div>
+
+          <Button
+            className="w-full gap-2"
+            onClick={handleSubmit}
+            disabled={!form.preferredDate}
+            data-testid="button-submit-booking"
+          >
+            <Send className="w-3.5 h-3.5" /> リクエストを送信
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === "sent") {
+    return (
+      <div className="bg-card border border-border rounded-xl px-4 py-5 text-center space-y-2" data-testid="booking-sent">
+        <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+        <p className="text-[13px] font-medium text-foreground">送信中...</p>
+        <p className="text-[11px] text-muted-foreground">{clinicName}に予約リクエストを送っています</p>
+      </div>
+    );
+  }
+
+  if (stage === "alt_received") {
+    return (
+      <div className="bg-card border border-border rounded-xl overflow-hidden" data-testid="booking-alt-received">
+        <div className="px-4 py-3 border-b border-border bg-blue-500/5 flex items-center gap-2">
+          <MessageSquare className="w-3.5 h-3.5 text-blue-400" />
+          <span className="text-[12px] font-medium text-blue-400">クリニックから代替日程の提案</span>
+          <span className="ml-auto w-2 h-2 rounded-full bg-blue-400 animate-pulse" />
+        </div>
+        <div className="px-4 py-3 space-y-3">
+          <div className="bg-blue-500/5 border border-blue-500/15 rounded-lg px-3 py-2.5">
+            <p className="text-[12px] text-muted-foreground leading-relaxed">
+              ご希望の日時は施術者の都合により対応が難しい状況です。以下の候補日はいかがでしょうか？
+            </p>
+          </div>
+
+          <p className="text-[10px] text-muted-foreground font-medium">候補日時を選択してください</p>
+
+          <div className="space-y-2">
+            {MOCK_ALT_SLOTS.map(slot => (
+              <button
+                key={slot.id}
+                onClick={() => setSelectedAlt(slot.id)}
+                data-testid={`button-alt-slot-${slot.id}`}
+                className={`w-full flex items-center gap-3 px-3 py-3 rounded-xl border transition-all ${
+                  selectedAlt === slot.id
+                    ? "bg-primary/15 border-primary/60 text-primary"
+                    : "bg-background border-border text-foreground hover:border-primary/30"
+                }`}
+              >
+                <Clock className="w-3.5 h-3.5 shrink-0 opacity-70" />
+                <div className="text-left">
+                  <div className="text-[13px] font-medium">{slot.date}</div>
+                  <div className="text-[11px] text-muted-foreground">{slot.time}</div>
+                </div>
+                {selectedAlt === slot.id && (
+                  <CheckCircle2 className="w-4 h-4 ml-auto text-primary" />
+                )}
+              </button>
+            ))}
+          </div>
+
+          <Button
+            className="w-full gap-2"
+            disabled={!selectedAlt}
+            onClick={handleAltAccept}
+            data-testid="button-accept-alt"
+          >
+            <CalendarCheck className="w-3.5 h-3.5" /> この日程で予約する
+          </Button>
+          <button
+            onClick={() => setStage("form")}
+            className="w-full text-[11px] text-muted-foreground hover:text-foreground py-1 transition-colors"
+            data-testid="button-resubmit-booking"
+          >
+            別の日程を希望する
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (stage === "alt_accepted") {
+    return (
+      <div className="bg-card border border-border rounded-xl px-4 py-5 text-center space-y-2" data-testid="booking-confirming">
+        <Loader2 className="w-6 h-6 text-primary animate-spin mx-auto" />
+        <p className="text-[13px] font-medium text-foreground">確定中...</p>
+      </div>
+    );
+  }
+
+  if (stage === "confirmed") {
+    return (
+      <div className="bg-primary/5 border border-primary/30 rounded-xl px-4 py-4 space-y-2" data-testid="booking-confirmed">
+        <div className="flex items-center gap-2">
+          <CalendarCheck className="w-5 h-5 text-primary" />
+          <span className="text-[13px] font-semibold text-primary">予約確定！</span>
+        </div>
+        {chosenSlot && (
+          <div className="bg-background border border-border rounded-lg px-3 py-2.5 flex items-center gap-3">
+            <Clock className="w-3.5 h-3.5 text-primary shrink-0" />
+            <div>
+              <div className="text-[13px] font-medium text-foreground">{chosenSlot.date} {chosenSlot.time}</div>
+              <div className="text-[11px] text-muted-foreground">{clinicName} · {form.treatmentType}</div>
+            </div>
+          </div>
+        )}
+        <p className="text-[11px] text-muted-foreground">当日のご来院をお待ちしております。</p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="w-full gap-1.5 text-[11px] mt-1"
+          onClick={() => setStage("idle")}
+          data-testid="button-booking-done"
+        >
+          <Check className="w-3 h-3" /> 閉じる
+        </Button>
+      </div>
+    );
+  }
+
+  return null;
 }
 
 function ShopTab({
