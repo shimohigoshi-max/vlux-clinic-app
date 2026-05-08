@@ -826,9 +826,14 @@ export function IPadView(props: IPadViewProps) {
             )}
             {selectedPatientId === DEMO_PATIENT_ENTRY.id && (
               <div className="flex gap-2 mt-2">
-                <Button className="flex-1" variant="outline" onClick={onLoadSample} data-testid="button-load-sample">
-                  <FileText className="w-4 h-4" /> サンプル読込
-                </Button>
+                <button
+                  onClick={onLoadSample}
+                  data-testid="button-load-sample"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded border border-border/30 bg-transparent text-[11px] text-muted-foreground/40 hover:border-border/50 hover:bg-muted/10 transition-colors"
+                >
+                  <FileText className="w-3 h-3 opacity-40" />
+                  <span className="text-amber-400/70">サンプル読込</span>
+                </button>
               </div>
             )}
             <Button
