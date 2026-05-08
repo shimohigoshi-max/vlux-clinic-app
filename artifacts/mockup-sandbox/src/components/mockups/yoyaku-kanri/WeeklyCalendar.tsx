@@ -1,20 +1,27 @@
 import { useState } from "react";
 import {
-  Calendar,
   Clock,
-  ChevronLeft,
-  ChevronRight,
   CheckCircle2,
   XCircle,
   MessageSquare,
-  RefreshCw,
+  ChevronRight,
   User,
   Bell,
-  MoreHorizontal,
-  Phone,
+  Send,
+  CalendarCheck,
+  RefreshCw,
+  AlertCircle,
+  CheckCheck,
+  ArrowRight,
 } from "lucide-react";
 
-type RequestStatus = "pending" | "confirmed" | "declined" | "alternative";
+type Stage = "new" | "alt_sent" | "patient_replied" | "confirmed" | "closed";
+
+interface AltSlot {
+  date: string;
+  time: string;
+  selected?: boolean;
+}
 
 interface BookingRequest {
   id: string;
@@ -24,300 +31,407 @@ interface BookingRequest {
   requestedTime: string;
   type: string;
   note: string;
-  status: RequestStatus;
-  phone: string;
+  stage: Stage;
+  altSlots?: AltSlot[];
+  patientChoice?: AltSlot;
+  receivedAt: string;
 }
 
-const MOCK_REQUESTS: BookingRequest[] = [
+const INITIAL_REQUESTS: BookingRequest[] = [
   {
     id: "1",
     patientName: "田中 花子",
     kana: "タナカ ハナコ",
-    requestedDate: "2026-05-11",
+    requestedDate: "5/13（水）",
     requestedTime: "10:00",
     type: "定期施術",
-    note: "先週から右肩が痛い",
-    status: "pending",
-    phone: "090-1234-5678",
+    note: "先週から右肩が痛い。早めに来たい。",
+    stage: "new",
+    receivedAt: "14分前",
   },
   {
     id: "2",
     patientName: "山田 太郎",
     kana: "ヤマダ タロウ",
-    requestedDate: "2026-05-11",
+    requestedDate: "5/14（木）",
     requestedTime: "14:00",
     type: "初診",
     note: "腰痛で歩くのが辛い",
-    status: "pending",
-    phone: "080-9876-5432",
+    stage: "alt_sent",
+    altSlots: [
+      { date: "5/15（金）", time: "10:00" },
+      { date: "5/15（金）", time: "14:30" },
+      { date: "5/16（土）", time: "11:00" },
+    ],
+    receivedAt: "1時間前",
   },
   {
     id: "3",
     patientName: "鈴木 美咲",
     kana: "スズキ ミサキ",
-    requestedDate: "2026-05-12",
+    requestedDate: "5/11（月）",
     requestedTime: "11:00",
     type: "再診",
     note: "",
-    status: "confirmed",
-    phone: "070-1111-2222",
+    stage: "patient_replied",
+    altSlots: [
+      { date: "5/15（金）", time: "10:00" },
+      { date: "5/15（金）", time: "14:30" },
+    ],
+    patientChoice: { date: "5/15（金）", time: "14:30" },
+    receivedAt: "昨日",
   },
   {
     id: "4",
     patientName: "佐藤 健一",
     kana: "サトウ ケンイチ",
-    requestedDate: "2026-05-13",
+    requestedDate: "5/10（日）",
     requestedTime: "09:00",
     type: "定期施術",
     note: "膝のリハビリ継続",
-    status: "declined",
-    phone: "090-3333-4444",
+    stage: "confirmed",
+    receivedAt: "2日前",
   },
 ];
 
-const WEEK_DAYS = ["月", "火", "水", "木", "金", "土"];
-const DATES = ["5/11", "5/12", "5/13", "5/14", "5/15", "5/16"];
-const TIME_SLOTS = ["09:00", "10:00", "11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"];
-
-const CALENDAR_EVENTS: Record<string, { name: string; type: string; color: string }[]> = {
-  "09:00-月": [{ name: "佐藤 健一", type: "定期", color: "bg-red-900/60 border-red-500" }],
-  "10:00-月": [{ name: "田中 花子", type: "定期 ※未承認", color: "bg-amber-900/60 border-amber-400 border-dashed" }],
-  "11:00-火": [{ name: "鈴木 美咲", type: "再診", color: "bg-teal-900/60 border-teal-500" }],
-  "14:00-月": [{ name: "山田 太郎", type: "初診 ※未承認", color: "bg-amber-900/60 border-amber-400 border-dashed" }],
-  "10:00-水": [{ name: "中村 恵子", type: "定期", color: "bg-teal-900/60 border-teal-500" }],
-  "15:00-木": [{ name: "伊藤 正男", type: "初診", color: "bg-blue-900/60 border-blue-500" }],
-  "13:00-金": [{ name: "高橋 由美", type: "再診", color: "bg-teal-900/60 border-teal-500" }],
+const STAGE_CONFIG: Record<Stage, { label: string; color: string; icon: React.ReactNode }> = {
+  new: {
+    label: "新着",
+    color: "text-amber-300 bg-amber-500/15 border-amber-500/40",
+    icon: <Bell className="w-3 h-3" />,
+  },
+  alt_sent: {
+    label: "代替提案送信済",
+    color: "text-blue-300 bg-blue-500/15 border-blue-500/40",
+    icon: <Send className="w-3 h-3" />,
+  },
+  patient_replied: {
+    label: "患者が返答",
+    color: "text-violet-300 bg-violet-500/15 border-violet-500/40",
+    icon: <MessageSquare className="w-3 h-3" />,
+  },
+  confirmed: {
+    label: "予約確定",
+    color: "text-teal-300 bg-teal-500/15 border-teal-500/40",
+    icon: <CalendarCheck className="w-3 h-3" />,
+  },
+  closed: {
+    label: "対応済",
+    color: "text-gray-500 bg-white/5 border-white/10",
+    icon: <CheckCheck className="w-3 h-3" />,
+  },
 };
 
-function StatusBadge({ status }: { status: RequestStatus }) {
-  const config = {
-    pending: { label: "未承認", cls: "bg-amber-500/20 text-amber-300 border border-amber-500/40" },
-    confirmed: { label: "承認済", cls: "bg-teal-500/20 text-teal-300 border border-teal-500/40" },
-    declined: { label: "却下", cls: "bg-red-500/20 text-red-300 border border-red-500/40" },
-    alternative: { label: "代替提案", cls: "bg-blue-500/20 text-blue-300 border border-blue-500/40" },
-  };
-  const { label, cls } = config[status];
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{label}</span>;
+const STAGES: Stage[] = ["new", "alt_sent", "patient_replied", "confirmed"];
+
+function StagePill({ stage }: { stage: Stage }) {
+  const cfg = STAGE_CONFIG[stage];
+  return (
+    <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${cfg.color}`}>
+      {cfg.icon}
+      {cfg.label}
+    </span>
+  );
+}
+
+function AltSlotBubble({ slot, chosen }: { slot: AltSlot; chosen?: boolean }) {
+  return (
+    <span
+      className={`inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs border transition-all ${
+        chosen
+          ? "bg-violet-900/60 border-violet-400/60 text-violet-200 font-medium"
+          : "bg-white/5 border-white/15 text-gray-300"
+      }`}
+    >
+      <Clock className="w-3 h-3 opacity-60" />
+      {slot.date} {slot.time}
+      {chosen && <CheckCircle2 className="w-3 h-3 text-violet-300 ml-0.5" />}
+    </span>
+  );
 }
 
 export function WeeklyCalendar() {
-  const [selected, setSelected] = useState<BookingRequest | null>(MOCK_REQUESTS[0]);
-  const [requests, setRequests] = useState(MOCK_REQUESTS);
-  const [activeTab, setActiveTab] = useState<"pending" | "all">("pending");
+  const [requests, setRequests] = useState(INITIAL_REQUESTS);
+  const [selected, setSelected] = useState<BookingRequest>(INITIAL_REQUESTS[0]);
+  const [altDraft, setAltDraft] = useState<AltSlot[]>([]);
+  const [newSlotDate, setNewSlotDate] = useState("");
+  const [newSlotTime, setNewSlotTime] = useState("");
+  const [filterStage, setFilterStage] = useState<Stage | "all">("all");
 
-  const updateStatus = (id: string, status: RequestStatus) => {
-    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, status } : r)));
-    setSelected((prev) => (prev?.id === id ? { ...prev, status } : prev));
+  const sync = (id: string, patch: Partial<BookingRequest>) => {
+    setRequests((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+    setSelected((prev) => (prev.id === id ? { ...prev, ...patch } : prev));
   };
 
-  const filtered = activeTab === "pending" ? requests.filter((r) => r.status === "pending") : requests;
-  const pendingCount = requests.filter((r) => r.status === "pending").length;
+  const addAlt = () => {
+    if (!newSlotDate || !newSlotTime) return;
+    setAltDraft((prev) => [...prev, { date: newSlotDate, time: newSlotTime }]);
+    setNewSlotDate("");
+    setNewSlotTime("");
+  };
+
+  const sendAlts = () => {
+    sync(selected.id, { stage: "alt_sent", altSlots: altDraft });
+    setAltDraft([]);
+  };
+
+  const confirm = () => sync(selected.id, { stage: "confirmed" });
+  const decline = () => sync(selected.id, { stage: "closed" });
+
+  const filtered = filterStage === "all" ? requests : requests.filter((r) => r.stage === filterStage);
+  const newCount = requests.filter((r) => r.stage === "new").length;
+  const replyCount = requests.filter((r) => r.stage === "patient_replied").length;
 
   return (
     <div className="flex h-screen bg-[#0a0f1a] text-white font-sans overflow-hidden">
-      {/* Left: Calendar */}
-      <div className="flex-1 flex flex-col min-w-0">
+
+      {/* Left: Request List */}
+      <div className="w-72 flex flex-col border-r border-white/10 bg-[#0d1525]">
         {/* Header */}
-        <div className="flex items-center justify-between px-5 py-3 border-b border-white/10 bg-[#0d1525]">
-          <div className="flex items-center gap-3">
-            <Calendar className="w-5 h-5 text-teal-400" />
-            <span className="font-semibold text-base tracking-wide">予約カレンダー</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <button className="p-1.5 rounded hover:bg-white/10 transition-colors">
-              <ChevronLeft className="w-4 h-4 text-gray-400" />
-            </button>
-            <span className="text-sm font-medium text-gray-300 px-2">2026年5月 第2週</span>
-            <button className="p-1.5 rounded hover:bg-white/10 transition-colors">
-              <ChevronRight className="w-4 h-4 text-gray-400" />
-            </button>
-          </div>
-        </div>
-
-        {/* Calendar Grid */}
-        <div className="flex-1 overflow-auto">
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="bg-[#0d1525]">
-                <th className="w-14 py-2 text-gray-500 font-medium text-center border-b border-r border-white/10"></th>
-                {WEEK_DAYS.map((day, i) => (
-                  <th
-                    key={day}
-                    className={`py-2 text-center border-b border-r border-white/10 font-medium ${
-                      i === 5 ? "text-teal-300" : "text-gray-300"
-                    }`}
-                  >
-                    <div className="text-xs text-gray-500">{DATES[i]}</div>
-                    <div>{day}</div>
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {TIME_SLOTS.map((time) => (
-                <tr key={time} className="h-[52px]">
-                  <td className="text-gray-500 text-center border-r border-b border-white/10 px-1 align-top pt-1">
-                    {time}
-                  </td>
-                  {WEEK_DAYS.map((day) => {
-                    const key = `${time}-${day}`;
-                    const events = CALENDAR_EVENTS[key];
-                    return (
-                      <td
-                        key={day}
-                        className="border-r border-b border-white/10 p-0.5 align-top relative"
-                      >
-                        {events?.map((ev, idx) => (
-                          <div
-                            key={idx}
-                            className={`rounded px-1.5 py-1 border text-xs cursor-pointer mb-0.5 ${ev.color}`}
-                          >
-                            <div className="font-medium truncate">{ev.name}</div>
-                            <div className="text-gray-400 text-[10px]">{ev.type}</div>
-                          </div>
-                        ))}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Right: Request Panel */}
-      <div className="w-72 flex flex-col border-l border-white/10 bg-[#0d1525]">
-        {/* Panel Header */}
         <div className="px-4 py-3 border-b border-white/10">
-          <div className="flex items-center justify-between mb-2">
-            <span className="font-semibold text-sm flex items-center gap-2">
-              <Bell className="w-4 h-4 text-amber-400" />
-              予約リクエスト
-              {pendingCount > 0 && (
-                <span className="bg-amber-500 text-black text-xs font-bold px-1.5 py-0.5 rounded-full">
-                  {pendingCount}
+          <div className="flex items-center justify-between mb-3">
+            <span className="font-semibold text-sm">予約リクエスト</span>
+            <div className="flex gap-1.5">
+              {newCount > 0 && (
+                <span className="bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  新着 {newCount}
                 </span>
               )}
-            </span>
+              {replyCount > 0 && (
+                <span className="bg-violet-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                  返答 {replyCount}
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex gap-1">
-            {(["pending", "all"] as const).map((tab) => (
+          {/* Stage filter */}
+          <div className="flex flex-wrap gap-1">
+            {(["all", ...STAGES] as (Stage | "all")[]).map((s) => (
               <button
-                key={tab}
-                onClick={() => setActiveTab(tab)}
-                className={`flex-1 py-1 rounded text-xs font-medium transition-colors ${
-                  activeTab === tab
-                    ? "bg-teal-500/20 text-teal-300 border border-teal-500/40"
-                    : "text-gray-500 hover:text-gray-300"
+                key={s}
+                onClick={() => setFilterStage(s)}
+                className={`px-2 py-0.5 rounded-full text-[10px] font-medium transition-all border ${
+                  filterStage === s
+                    ? "bg-teal-500/25 text-teal-300 border-teal-500/50"
+                    : "text-gray-600 border-white/10 hover:text-gray-400"
                 }`}
               >
-                {tab === "pending" ? "未承認のみ" : "すべて"}
+                {s === "all" ? "すべて" : STAGE_CONFIG[s].label}
               </button>
             ))}
           </div>
         </div>
 
-        {/* Request List */}
+        {/* Request Items */}
         <div className="flex-1 overflow-y-auto divide-y divide-white/10">
           {filtered.map((req) => (
             <div
               key={req.id}
-              onClick={() => setSelected(req)}
+              onClick={() => { setSelected(req); setAltDraft([]); }}
               className={`px-4 py-3 cursor-pointer transition-colors ${
-                selected?.id === req.id ? "bg-teal-900/30" : "hover:bg-white/5"
+                selected.id === req.id ? "bg-teal-900/25" : "hover:bg-white/5"
               }`}
             >
-              <div className="flex items-start justify-between mb-1">
-                <div>
-                  <div className="font-medium text-sm">{req.patientName}</div>
-                  <div className="text-gray-500 text-[10px]">{req.kana}</div>
-                </div>
-                <StatusBadge status={req.status} />
+              <div className="flex items-center justify-between mb-1.5">
+                <span className="font-medium text-sm">{req.patientName}</span>
+                <ChevronRight className="w-3 h-3 text-gray-600" />
               </div>
-              <div className="flex items-center gap-1 text-gray-400 text-xs mt-1">
+              <div className="flex items-center gap-1 text-gray-500 text-xs mb-1.5">
                 <Clock className="w-3 h-3" />
-                <span>{req.requestedDate} {req.requestedTime}</span>
+                {req.requestedDate} {req.requestedTime}
+                <span className="ml-auto text-gray-600 text-[10px]">{req.receivedAt}</span>
               </div>
-              <div className="text-teal-400 text-xs mt-0.5">{req.type}</div>
+              <StagePill stage={req.stage} />
             </div>
           ))}
-          {filtered.length === 0 && (
-            <div className="text-center text-gray-600 text-sm py-8">未承認の予約はありません</div>
+        </div>
+      </div>
+
+      {/* Right: Detail + Action */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Patient header */}
+        <div className="px-6 py-4 border-b border-white/10 bg-[#0d1525] flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-gradient-to-br from-teal-900 to-blue-900 flex items-center justify-center border border-white/15">
+              <User className="w-5 h-5 text-teal-300" />
+            </div>
+            <div>
+              <div className="font-semibold">{selected.patientName}</div>
+              <div className="text-gray-500 text-xs">{selected.kana} ・ {selected.type}</div>
+            </div>
+          </div>
+          <StagePill stage={selected.stage} />
+        </div>
+
+        {/* Flow timeline */}
+        <div className="px-6 py-4 border-b border-white/10 flex items-center gap-2 text-xs overflow-x-auto">
+          {(["new", "alt_sent", "patient_replied", "confirmed"] as Stage[]).map((s, i, arr) => (
+            <div key={s} className="flex items-center gap-2 flex-shrink-0">
+              <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full border ${
+                selected.stage === s
+                  ? STAGE_CONFIG[s].color + " font-medium"
+                  : STAGES.indexOf(selected.stage) > STAGES.indexOf(s)
+                  ? "text-gray-500 bg-white/5 border-white/10"
+                  : "text-gray-700 border-transparent"
+              }`}>
+                {STAGE_CONFIG[s].icon}
+                {STAGE_CONFIG[s].label}
+              </div>
+              {i < arr.length - 1 && <ArrowRight className="w-3 h-3 text-gray-700 flex-shrink-0" />}
+            </div>
+          ))}
+        </div>
+
+        {/* Main content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+
+          {/* Original request */}
+          <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+            <div className="text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">患者リクエスト</div>
+            <div className="flex gap-6 text-sm mb-2">
+              <div>
+                <span className="text-gray-500 text-xs">希望日時</span>
+                <div className="font-medium text-white mt-0.5">{selected.requestedDate} {selected.requestedTime}</div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">種別</span>
+                <div className="text-teal-300 mt-0.5">{selected.type}</div>
+              </div>
+              <div>
+                <span className="text-gray-500 text-xs">受信</span>
+                <div className="text-gray-400 mt-0.5">{selected.receivedAt}</div>
+              </div>
+            </div>
+            {selected.note && (
+              <div className="text-sm text-gray-300 italic border-t border-white/10 pt-2 mt-2">
+                「{selected.note}」
+              </div>
+            )}
+          </div>
+
+          {/* Alt slots sent */}
+          {selected.altSlots && (
+            <div className="bg-blue-950/40 rounded-xl p-4 border border-blue-700/30">
+              <div className="text-xs text-blue-300 mb-2 font-medium uppercase tracking-wider flex items-center gap-1.5">
+                <Send className="w-3 h-3" /> 代替候補を送信済
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selected.altSlots.map((s, i) => (
+                  <AltSlotBubble
+                    key={i}
+                    slot={s}
+                    chosen={
+                      selected.patientChoice?.date === s.date &&
+                      selected.patientChoice?.time === s.time
+                    }
+                  />
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Patient replied */}
+          {selected.stage === "patient_replied" && selected.patientChoice && (
+            <div className="bg-violet-950/40 rounded-xl p-4 border border-violet-600/40">
+              <div className="text-xs text-violet-300 mb-2 font-medium uppercase tracking-wider flex items-center gap-1.5">
+                <MessageSquare className="w-3 h-3" /> 患者が候補を選択しました
+              </div>
+              <div className="flex items-center gap-3">
+                <AltSlotBubble slot={selected.patientChoice} chosen />
+                <span className="text-gray-400 text-xs">を希望しています</span>
+              </div>
+              <div className="mt-3 flex gap-2">
+                <button
+                  onClick={confirm}
+                  className="flex-1 flex items-center justify-center gap-2 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 transition-colors text-sm font-medium"
+                >
+                  <CalendarCheck className="w-4 h-4" />
+                  予約を確定する
+                </button>
+                <button
+                  onClick={() => sync(selected.id, { stage: "alt_sent", patientChoice: undefined })}
+                  className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-sm text-gray-300"
+                >
+                  再提案
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Confirmed */}
+          {selected.stage === "confirmed" && (
+            <div className="bg-teal-950/40 rounded-xl p-4 border border-teal-600/40 flex items-center gap-3">
+              <CalendarCheck className="w-8 h-8 text-teal-400 flex-shrink-0" />
+              <div>
+                <div className="font-semibold text-teal-300">予約確定済み</div>
+                <div className="text-gray-400 text-sm mt-0.5">外部予約システムに登録してください</div>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Detail Panel */}
-        {selected && (
-          <div className="border-t border-white/10 p-4 bg-[#0a0f1a]">
-            <div className="flex items-center justify-between mb-3">
-              <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-full bg-teal-900 flex items-center justify-center">
-                  <User className="w-4 h-4 text-teal-400" />
-                </div>
-                <div>
-                  <div className="font-semibold text-sm">{selected.patientName}</div>
-                  <div className="text-gray-500 text-[10px] flex items-center gap-1">
-                    <Phone className="w-2.5 h-2.5" />
-                    {selected.phone}
-                  </div>
-                </div>
-              </div>
-              <StatusBadge status={selected.status} />
+        {/* Action zone for "new" stage */}
+        {selected.stage === "new" && (
+          <div className="border-t border-white/10 p-4 bg-[#0d1525] space-y-3">
+            <div className="text-xs text-gray-500 font-medium uppercase tracking-wider">アクション</div>
+            <div className="flex gap-2">
+              <button
+                onClick={confirm}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-500 transition-colors text-sm font-medium"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                そのまま承認
+              </button>
+              <button
+                onClick={decline}
+                className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-red-900/50 hover:bg-red-800/50 border border-red-700/40 transition-colors text-sm text-red-300"
+              >
+                <XCircle className="w-4 h-4" />
+                対応不可
+              </button>
             </div>
-
-            <div className="bg-white/5 rounded-lg p-3 mb-3 space-y-1.5 text-xs">
-              <div className="flex justify-between">
-                <span className="text-gray-500">希望日時</span>
-                <span className="text-white">{selected.requestedDate} {selected.requestedTime}</span>
+            <div className="bg-white/5 rounded-xl p-3 border border-white/10">
+              <div className="text-xs text-gray-500 mb-2 flex items-center gap-1.5">
+                <RefreshCw className="w-3 h-3" /> 代替日時を提案する
               </div>
-              <div className="flex justify-between">
-                <span className="text-gray-500">種別</span>
-                <span className="text-teal-300">{selected.type}</span>
+              <div className="flex flex-wrap gap-1.5 mb-2">
+                {altDraft.map((s, i) => (
+                  <AltSlotBubble key={i} slot={s} />
+                ))}
+                {altDraft.length === 0 && (
+                  <span className="text-gray-600 text-xs">候補を追加してください</span>
+                )}
               </div>
-              {selected.note && (
-                <div className="pt-1 border-t border-white/10">
-                  <span className="text-gray-500 block mb-1">患者メモ</span>
-                  <span className="text-gray-300">{selected.note}</span>
-                </div>
+              <div className="flex gap-2">
+                <input
+                  value={newSlotDate}
+                  onChange={(e) => setNewSlotDate(e.target.value)}
+                  placeholder="例: 5/15（金）"
+                  className="flex-1 bg-black/30 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-teal-500/60"
+                />
+                <input
+                  value={newSlotTime}
+                  onChange={(e) => setNewSlotTime(e.target.value)}
+                  placeholder="10:00"
+                  className="w-20 bg-black/30 border border-white/15 rounded-lg px-2 py-1.5 text-xs text-white placeholder:text-gray-600 focus:outline-none focus:border-teal-500/60"
+                />
+                <button
+                  onClick={addAlt}
+                  className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-xs text-gray-300 transition-colors"
+                >
+                  追加
+                </button>
+              </div>
+              {altDraft.length > 0 && (
+                <button
+                  onClick={sendAlts}
+                  className="w-full mt-2 flex items-center justify-center gap-2 py-2 rounded-lg bg-blue-700 hover:bg-blue-600 transition-colors text-sm font-medium"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                  患者アプリへ送信
+                </button>
               )}
             </div>
-
-            {selected.status === "pending" && (
-              <div className="grid grid-cols-2 gap-1.5">
-                <button
-                  onClick={() => updateStatus(selected.id, "confirmed")}
-                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-teal-600 hover:bg-teal-500 transition-colors text-xs font-medium"
-                >
-                  <CheckCircle2 className="w-3.5 h-3.5" />
-                  承認
-                </button>
-                <button
-                  onClick={() => updateStatus(selected.id, "declined")}
-                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-red-900/60 hover:bg-red-800/60 border border-red-700/50 transition-colors text-xs font-medium text-red-300"
-                >
-                  <XCircle className="w-3.5 h-3.5" />
-                  却下
-                </button>
-                <button
-                  onClick={() => updateStatus(selected.id, "alternative")}
-                  className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-blue-900/60 hover:bg-blue-800/60 border border-blue-700/50 transition-colors text-xs font-medium text-blue-300"
-                >
-                  <RefreshCw className="w-3.5 h-3.5" />
-                  代替提案
-                </button>
-                <button className="flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-xs font-medium text-gray-300">
-                  <MessageSquare className="w-3.5 h-3.5" />
-                  メッセージ
-                </button>
-              </div>
-            )}
-            {selected.status !== "pending" && (
-              <button className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg bg-white/10 hover:bg-white/15 transition-colors text-xs font-medium text-gray-300">
-                <MoreHorizontal className="w-3.5 h-3.5" />
-                操作
-              </button>
-            )}
           </div>
         )}
       </div>
