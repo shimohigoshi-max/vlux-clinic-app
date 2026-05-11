@@ -76,7 +76,7 @@ export function SmartphoneView({
   healthSynced, healthSyncing, onSyncHealth,
 }: SmartphoneViewProps) {
 
-  const [activeClinic, setActiveClinic] = useState("tanaka");
+  const activeClinic = "tanaka";
   const [issuedCoupon, setIssuedCoupon] = useState<Coupon | null>(null);
   const [couponIssuing, setCouponIssuing] = useState(false);
   const [connectedSource, setConnectedSource] = useState<"healthkit" | "googlefit" | "mock" | null>(null);
@@ -480,7 +480,7 @@ export function SmartphoneView({
 
             {phoneTab === "timeline" && (
               <div className="space-y-2.5">
-                <ClinicBanner activeClinic={activeClinic} onSwitch={setActiveClinic} />
+                <ClinicBanner clinicName={CLINIC_MASTER[activeClinic as keyof typeof CLINIC_MASTER]?.name ?? activeClinic} />
 
 
                 {patientSent && karte && !karte.error ? (
@@ -1767,44 +1767,12 @@ function PhoneNotificationTicker() {
   );
 }
 
-function ClinicBanner({ activeClinic, onSwitch }: { activeClinic: string; onSwitch: (id: string) => void }) {
-  const clinics = Object.values(CLINIC_MASTER);
-  const switched = activeClinic !== "tanaka";
-
+function ClinicBanner({ clinicName }: { clinicName: string }) {
   return (
-    <div className="mb-2.5" data-testid="clinic-banner">
-      <div className="bg-muted/30 border border-border rounded-xl p-3">
-        <p className="text-[9px] text-muted-foreground tracking-[2px] mb-2 flex items-center gap-1">
-          <MapPin className="w-3 h-3" /> 本日の来院先
-        </p>
-        <div className="flex gap-2 mb-2">
-          {clinics.map(c => (
-            <button
-              key={c.id}
-              onClick={() => onSwitch(c.id)}
-              className={`flex-1 rounded-lg p-2 text-center text-[11px] font-semibold transition-all ${
-                activeClinic === c.id
-                  ? "bg-primary/15 text-primary border border-primary/30"
-                  : "bg-muted/40 text-muted-foreground border border-transparent"
-              }`}
-              data-testid={`clinic-btn-${c.id}`}
-            >
-              {c.name} {activeClinic === c.id ? (
-                <Check className="w-3 h-3 inline ml-0.5" />
-              ) : null}
-            </button>
-          ))}
-        </div>
-        {switched && (
-          <div className="bg-blue-500/10 border border-blue-500/20 rounded-lg p-2.5 flex gap-2 items-start animate-fade-in" data-testid="clinic-inherited-msg">
-            <TrendingUp className="w-3.5 h-3.5 text-blue-400 mt-0.5 shrink-0" />
-            <div>
-              <p className="text-[10px] text-blue-400 font-semibold">前回来院（田中整骨院）のデータを引き継ぎました</p>
-              <p className="text-[9px] text-blue-400/60 mt-0.5">健康スコア・生活アドバイス・HealthKitデータは継続されます</p>
-            </div>
-          </div>
-        )}
-      </div>
+    <div className="flex items-center gap-2 px-1 mb-1" data-testid="clinic-banner">
+      <MapPin className="w-3 h-3 text-primary shrink-0" />
+      <span className="text-[11px] font-semibold text-foreground">{clinicName}</span>
+      <Check className="w-3 h-3 text-primary ml-auto shrink-0" />
     </div>
   );
 }
