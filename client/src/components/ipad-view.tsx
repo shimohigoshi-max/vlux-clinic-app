@@ -693,7 +693,7 @@ export function IPadView(props: IPadViewProps) {
 
       {/* ── 予約管理 ───────────────────────────────────────────────── */}
       {ipadTab === "schedule" && (
-        <ScheduleTab visits={adminVisits} patientMap={patientMap} clinicName={clinicInfo?.name ?? "整骨院"} />
+        <ScheduleTab clinicName={clinicInfo?.name ?? "整骨院"} />
       )}
 
       {/* ── 音声入力 ───────────────────────────────────────────────── */}
