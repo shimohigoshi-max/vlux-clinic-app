@@ -2255,8 +2255,6 @@ const PRESET_BOOKING_MESSAGES = [
 ];
 
 function ScheduleTab({ clinicName }: {
-  visits: AdminVisit[];
-  patientMap: Record<string, string>;
   clinicName: string;
 }) {
   const [requests, setRequests] = useState<BookingRequest[]>(INITIAL_BOOKING_REQUESTS);
