@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { serviceClient } from "./lib/supabaseService";
+import { requireAuth } from "./middleware/requireAuth";
 import twilio from "twilio";
 
 // Augment express-session to include Google Fit token fields
@@ -1118,6 +1119,29 @@ scoreは0〜100の整数値で出力してください。`,
     const { patient_id } = await getOrCreateDemoClinicAndPatient();
     return patient_id;
   }
+
+  // Authenticated patient self-lookup. JWT 必須。
+  // user_id でひもづく patient を 1 件返す（PHI は返さない）。
+  app.get("/api/patient/me", requireAuth, async (req, res) => {
+    try {
+      const userId = req.authUser?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      const supabase = serviceClient;
+      const { data, error } = await supabase
+        .from("patients")
+        .select("id, clinic_id, member_grade, created_at")
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle();
+      if (error) return res.status(500).json({ error: error.message });
+      if (!data) return res.status(404).json({ error: "patient not found" });
+      res.json(data);
+    } catch (e) {
+      res.status(500).json({ error: String(e) });
+    }
+  });
 
   app.get("/api/patient/profile", async (_req, res) => {
     try {
