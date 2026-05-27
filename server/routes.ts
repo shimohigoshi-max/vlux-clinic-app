@@ -1120,6 +1120,18 @@ scoreは0〜100の整数値で出力してください。`,
     return patient_id;
   }
 
+  // 認証済み user_id から本人 patient.id を解決する。見つからない場合は null。
+  async function getAuthenticatedPatientId(userId: string): Promise<string | null> {
+    const { data, error } = await serviceClient
+      .from("patients")
+      .select("id")
+      .eq("user_id", userId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data.id;
+  }
+
   // Authenticated patient self-lookup. JWT 必須。
   // user_id でひもづく patient を 1 件返す（PHI は返さない）。
   app.get("/api/patient/me", requireAuth, async (req, res) => {
@@ -1143,21 +1155,27 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.get("/api/patient/profile", async (_req, res) => {
+  app.get("/api/patient/profile", requireAuth, async (req, res) => {
     try {
-      const patient_id = await getDemoPatientId();
+      const userId = req.authUser?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
       const supabase = serviceClient;
       const { data: patient, error } = await supabase
         .from("patients")
         .select("id, clinic_id, name_kana, member_grade, gender, birth_date")
-        .eq("id", patient_id)
-        .single();
+        .eq("user_id", userId)
+        .is("deleted_at", null)
+        .maybeSingle();
       if (error) return res.status(500).json({ error: error.message });
+      if (!patient) return res.status(404).json({ error: "patient not found" });
 
       const { count } = await supabase
         .from("visits")
         .select("id", { count: "exact", head: true })
-        .eq("patient_id", patient_id);
+        .eq("patient_id", patient.id)
+        .is("deleted_at", null);
 
       res.json({ ...patient, visit_count: count ?? 0 });
     } catch (e) {
@@ -1165,14 +1183,20 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.get("/api/patient/visits", async (_req, res) => {
+  app.get("/api/patient/visits", requireAuth, async (req, res) => {
     try {
-      const patient_id = await getDemoPatientId();
+      const userId = req.authUser?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      const patient_id = await getAuthenticatedPatientId(userId);
+      if (!patient_id) return res.status(404).json({ error: "patient not found" });
       const supabase = serviceClient;
       const { data, error } = await supabase
         .from("visits")
         .select("id, visited_at, chief_complaint, soap_note, lifestyle_advice, recommended_products")
         .eq("patient_id", patient_id)
+        .is("deleted_at", null)
         .order("visited_at", { ascending: false })
         .limit(20);
       if (error) return res.status(500).json({ error: error.message });
@@ -1182,9 +1206,14 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.get("/api/patient/health-data", async (_req, res) => {
+  app.get("/api/patient/health-data", requireAuth, async (req, res) => {
     try {
-      const patient_id = await getDemoPatientId();
+      const userId = req.authUser?.id;
+      if (!userId) {
+        return res.status(401).json({ error: "unauthorized" });
+      }
+      const patient_id = await getAuthenticatedPatientId(userId);
+      if (!patient_id) return res.status(404).json({ error: "patient not found" });
       const supabase = serviceClient;
       const sevenDaysAgo = new Date();
       sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 6);
@@ -1194,6 +1223,7 @@ scoreは0〜100の整数値で出力してください。`,
         .from("health_data")
         .select("id, recorded_date, steps, heart_rate_avg, sleep_minutes, active_calories, source")
         .eq("patient_id", patient_id)
+        .is("deleted_at", null)
         .gte("recorded_date", fromDate)
         .order("recorded_date", { ascending: true });
       if (error) return res.status(500).json({ error: error.message });
