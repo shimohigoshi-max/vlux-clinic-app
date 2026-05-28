@@ -4,6 +4,7 @@ import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
 import { serviceClient } from "./lib/supabaseService";
 import { requireAuth } from "./middleware/requireAuth";
+import { requireStaffAuth } from "./middleware/requireStaffAuth";
 import twilio from "twilio";
 
 // Augment express-session to include Google Fit token fields
@@ -713,6 +714,28 @@ scoreは0〜100の整数値で出力してください。`,
     role: z.enum(["owner", "staff", "reception"]).default("staff"),
     email: z.string().optional().default(""),
     calendar_color: z.string().default("#00c896"),
+  });
+
+  // Authenticated staff self-lookup. JWT 必須 + staff membership 必須。
+  // patient JWT で叩くと 403（staffs に該当行なし）。
+  // owner_id NULL のクリニック所属 staff も 403（Default Deny）。
+  app.get("/api/staff/me", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext;
+    if (!ctx) {
+      return res.status(500).json({ error: "missing staff context" });
+    }
+    res.json({
+      staff: {
+        id: ctx.staffId,
+        name: ctx.staffName,
+        role: ctx.role,
+        clinic_id: ctx.clinicId,
+      },
+      clinic: {
+        id: ctx.clinicId,
+        name: ctx.clinicName,
+      },
+    });
   });
 
   app.get("/api/staffs", async (req, res) => {
