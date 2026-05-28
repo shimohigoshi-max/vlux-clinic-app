@@ -732,6 +732,44 @@ scoreは0〜100の整数値で出力してください。`,
     return true;
   }
 
+  // staffContext.role が "owner" または "staff" を強制（reception は 403）。
+  function requireStaffOrOwnerRole(req: Request, res: Response): boolean {
+    const role = req.staffContext?.role;
+    if (role !== "owner" && role !== "staff") {
+      res.status(403).json({ error: "staff or owner role required" });
+      return false;
+    }
+    return true;
+  }
+
+  // patient が staffContext.clinicId 配下かを検証。論理削除済み or 他院は false。
+  async function verifyPatientBelongsToStaffClinic(
+    patientId: string,
+    clinicId: string,
+  ): Promise<boolean> {
+    const { data } = await serviceClient
+      .from("patients")
+      .select("clinic_id")
+      .eq("id", patientId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return !!data && data.clinic_id === clinicId;
+  }
+
+  // visit が staffContext.clinicId 配下かを検証。論理削除済み or 他院は false。
+  async function verifyVisitBelongsToStaffClinic(
+    visitId: string,
+    clinicId: string,
+  ): Promise<boolean> {
+    const { data } = await serviceClient
+      .from("visits")
+      .select("clinic_id")
+      .eq("id", visitId)
+      .is("deleted_at", null)
+      .maybeSingle();
+    return !!data && data.clinic_id === clinicId;
+  }
+
   // Authenticated staff self-lookup. JWT 必須 + staff membership 必須。
   // patient JWT で叩くと 403（staffs に該当行なし）。
   // owner_id NULL のクリニック所属 staff も 403（Default Deny）。
@@ -844,12 +882,17 @@ scoreは0〜100の整数値で出力してください。`,
     member_grade: z.string().default("bronze"),
   });
 
-  app.get("/api/patients", async (req, res) => {
+  app.get("/api/patients", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext!;
     try {
       const supabase = serviceClient;
-      let query = supabase.from("patients").select("*").order("created_at", { ascending: false });
-      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
-      const { data, error } = await query;
+      // クライアント由来の clinic_id は無視し、staffContext.clinicId を強制
+      const { data, error } = await supabase
+        .from("patients")
+        .select("*")
+        .eq("clinic_id", ctx.clinicId)
+        .is("deleted_at", null)
+        .order("created_at", { ascending: false });
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
@@ -857,12 +900,15 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.post("/api/patients", async (req, res) => {
+  app.post("/api/patients", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext!;
     const parsed = patientInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
       const supabase = serviceClient;
-      const { data, error } = await supabase.from("patients").insert(parsed.data).select().single();
+      // body の clinic_id は信用せず staffContext.clinicId で上書き
+      const insertData = { ...parsed.data, clinic_id: ctx.clinicId };
+      const { data, error } = await supabase.from("patients").insert(insertData).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
@@ -968,12 +1014,27 @@ scoreは0〜100の整数値で出力してください。`,
     recommended_products: z.unknown().optional(),
   });
 
-  app.get("/api/visits", async (req, res) => {
+  app.get("/api/visits", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext!;
     try {
       const supabase = serviceClient;
-      let query = supabase.from("visits").select("*").order("visited_at", { ascending: false });
-      if (req.query.patient_id) query = query.eq("patient_id", req.query.patient_id as string);
-      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
+      // query.patient_id が指定された場合、その患者が自院所属か検証
+      const queryPatientId =
+        typeof req.query.patient_id === "string" ? req.query.patient_id : undefined;
+      if (queryPatientId) {
+        const belongs = await verifyPatientBelongsToStaffClinic(queryPatientId, ctx.clinicId);
+        if (!belongs) {
+          return res.status(404).json({ error: "patient not found" });
+        }
+      }
+      // クライアント由来の clinic_id は無視し、staffContext.clinicId を強制
+      let query = supabase
+        .from("visits")
+        .select("*")
+        .eq("clinic_id", ctx.clinicId)
+        .is("deleted_at", null)
+        .order("visited_at", { ascending: false });
+      if (queryPatientId) query = query.eq("patient_id", queryPatientId);
       const { data, error } = await query;
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
@@ -995,7 +1056,17 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.patch("/api/visits/:id", async (req, res) => {
+  app.patch("/api/visits/:id", requireStaffAuth, async (req, res) => {
+    if (!requireStaffOrOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
+    const visitId = req.params.id as string;
+
+    // 対象 visit が自院所属か検証（他院は 404 で隠蔽）
+    const belongs = await verifyVisitBelongsToStaffClinic(visitId, ctx.clinicId);
+    if (!belongs) {
+      return res.status(404).json({ error: "visit not found" });
+    }
+
     const parsed = visitPatchSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
@@ -1018,7 +1089,8 @@ scoreは0〜100の整数値で出力してください。`,
       const { data, error } = await supabase
         .from("visits")
         .update(updatePayload)
-        .eq("id", req.params.id)
+        .eq("id", visitId)
+        .eq("clinic_id", ctx.clinicId)
         .select()
         .single();
       if (error) return res.status(500).json({ error: error.message });
@@ -1028,10 +1100,32 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.delete("/api/visits/:id", async (req, res) => {
+  app.delete("/api/visits/:id", requireStaffAuth, async (req, res) => {
+    if (!requireOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
+    const visitId = req.params.id as string;
+
+    // 対象 visit が自院所属か検証（他院は 404 で隠蔽）
+    const belongs = await verifyVisitBelongsToStaffClinic(visitId, ctx.clinicId);
+    if (!belongs) {
+      return res.status(404).json({ error: "visit not found" });
+    }
+
     try {
       const supabase = serviceClient;
-      const { error } = await supabase.from("visits").delete().eq("id", req.params.id);
+      // 論理削除：deleted_at / deleted_by / delete_reason をセット（物理 DELETE はしない）。
+      // Phase 1.5-B B-0 schema discovery で visits.deleted_at / deleted_by / delete_reason
+      // の存在を確認済み。医療情報・監査性方針に基づき論理削除を採用。
+      const { error } = await supabase
+        .from("visits")
+        .update({
+          deleted_at: new Date().toISOString(),
+          deleted_by: ctx.staffId,
+          delete_reason: "staff_deleted_visit",
+        })
+        .eq("id", visitId)
+        .eq("clinic_id", ctx.clinicId)
+        .is("deleted_at", null);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
     } catch (e) {
