@@ -470,7 +470,7 @@ export function IPadView(props: IPadViewProps) {
 
   // ── Current staff role ────────────────────────────────────────────
   const currentStaff = staffs.find(s => s.name === staffName) ?? null;
-  const currentRole: "owner" | "staff" | "reception" = currentStaff?.role ?? "owner";
+  const currentRole: "owner" | "staff" | "reception" | null = currentStaff?.role ?? null;
 
   // ── Tabs (role-filtered) ──────────────────────────────────────────
   const allTabs = [
@@ -484,7 +484,7 @@ export function IPadView(props: IPadViewProps) {
     { id: "history",     label: "相関分析",   icon: BarChart3,  roles: ["owner", "staff"], comingSoon: true },
     { id: "ec-sales",    label: "通販売上",   icon: ShoppingCart, roles: ["owner"], comingSoon: true },
   ];
-  const tabs = allTabs.filter(t => t.roles.includes(currentRole));
+  const tabs = allTabs.filter(t => currentRole !== null && t.roles.includes(currentRole));
 
   const gradeColor = (grade: string) => {
     if (grade === "platinum") return "text-purple-400 border-purple-400/30";
@@ -528,7 +528,7 @@ export function IPadView(props: IPadViewProps) {
                 <option key={s} value={s}>{s}</option>
               ))}
             </select>
-            {currentRole !== "owner" && (
+            {currentRole !== null && currentRole !== "owner" && (
               <span className={`text-[9px] px-1 rounded ${currentRole === "reception" ? "text-amber-400 bg-amber-500/15" : "text-sky-400 bg-sky-500/15"}`}>
                 {currentRole === "reception" ? "受付" : "スタッフ"}
               </span>
