@@ -1,4 +1,4 @@
-import type { Express, Request } from "express";
+import type { Express, Request, Response } from "express";
 import { createServer, type Server } from "http";
 import { z } from "zod";
 import Anthropic from "@anthropic-ai/sdk";
@@ -689,17 +689,23 @@ scoreは0〜100の整数値で出力してください。`,
   });
 
   // ─── Clinic Settings ────────────────────────────────────────────────
-  app.patch("/api/admin/clinic", async (req, res) => {
+  app.patch("/api/admin/clinic", requireStaffAuth, async (req, res) => {
+    if (!requireOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
     try {
       const supabase = serviceClient;
-      const clinicId = process.env.TEST_CLINIC_ID ?? "aaaaaaaa-0000-0000-0000-000000000001";
       const allowedFields = ["name"];
       const updateBody: Record<string, unknown> = {};
       for (const f of allowedFields) {
         if (req.body[f] !== undefined) updateBody[f] = req.body[f];
       }
       if (Object.keys(updateBody).length === 0) return res.json({ ok: true });
-      const { data, error } = await supabase.from("clinics").update(updateBody).eq("id", clinicId).select("id, name").single();
+      const { data, error } = await supabase
+        .from("clinics")
+        .update(updateBody)
+        .eq("id", ctx.clinicId)
+        .select("id, name")
+        .single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
@@ -715,6 +721,16 @@ scoreは0〜100の整数値で出力してください。`,
     email: z.string().optional().default(""),
     calendar_color: z.string().default("#00c896"),
   });
+
+  // staffContext.role === "owner" を強制する最小ヘルパ。
+  // 失敗時は 403 を返し false を返す（呼び出し側で early return）。
+  function requireOwnerRole(req: Request, res: Response): boolean {
+    if (req.staffContext?.role !== "owner") {
+      res.status(403).json({ error: "owner role required" });
+      return false;
+    }
+    return true;
+  }
 
   // Authenticated staff self-lookup. JWT 必須 + staff membership 必須。
   // patient JWT で叩くと 403（staffs に該当行なし）。
@@ -738,12 +754,16 @@ scoreは0〜100の整数値で出力してください。`,
     });
   });
 
-  app.get("/api/staffs", async (req, res) => {
+  app.get("/api/staffs", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext!;
     try {
       const supabase = serviceClient;
-      let query = supabase.from("staffs").select("*").order("created_at", { ascending: true });
-      if (req.query.clinic_id) query = query.eq("clinic_id", req.query.clinic_id as string);
-      const { data, error } = await query;
+      // クライアント由来の clinic_id は無視し、staffContext.clinicId を強制
+      const { data, error } = await supabase
+        .from("staffs")
+        .select("*")
+        .eq("clinic_id", ctx.clinicId)
+        .order("created_at", { ascending: true });
       if (error) return res.status(500).json({ error: error.message });
       res.json(data ?? []);
     } catch (e) {
@@ -751,12 +771,16 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.post("/api/staffs", async (req, res) => {
+  app.post("/api/staffs", requireStaffAuth, async (req, res) => {
+    if (!requireOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
     const parsed = staffInsertSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
     try {
       const supabase = serviceClient;
-      const { data, error } = await supabase.from("staffs").insert(parsed.data).select().single();
+      // body の clinic_id は信用せず staffContext.clinicId で上書き
+      const insertData = { ...parsed.data, clinic_id: ctx.clinicId };
+      const { data, error } = await supabase.from("staffs").insert(insertData).select().single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
@@ -764,10 +788,44 @@ scoreは0〜100の整数値で出力してください。`,
     }
   });
 
-  app.delete("/api/staffs/:id", async (req, res) => {
+  app.delete("/api/staffs/:id", requireStaffAuth, async (req, res) => {
+    if (!requireOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
+    const targetId = req.params.id;
+
+    // 自己削除を禁止
+    if (targetId === ctx.staffId) {
+      return res.status(400).json({ error: "cannot delete self" });
+    }
+
     try {
       const supabase = serviceClient;
-      const { error } = await supabase.from("staffs").delete().eq("id", req.params.id);
+
+      // 削除対象 staff が同じ clinic 所属か確認
+      const { data: target, error: fetchErr } = await supabase
+        .from("staffs")
+        .select("id, clinic_id, role")
+        .eq("id", targetId)
+        .maybeSingle();
+      if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+      if (!target) return res.status(404).json({ error: "staff not found" });
+      if (target.clinic_id !== ctx.clinicId) {
+        return res.status(403).json({ error: "staff outside your clinic" });
+      }
+
+      // 最後の owner 削除を拒否
+      if (target.role === "owner") {
+        const { count } = await supabase
+          .from("staffs")
+          .select("id", { count: "exact", head: true })
+          .eq("clinic_id", ctx.clinicId)
+          .eq("role", "owner");
+        if ((count ?? 0) <= 1) {
+          return res.status(400).json({ error: "cannot delete last owner" });
+        }
+      }
+
+      const { error } = await supabase.from("staffs").delete().eq("id", targetId);
       if (error) return res.status(500).json({ error: error.message });
       res.json({ success: true });
     } catch (e) {
@@ -870,16 +928,15 @@ scoreは0〜100の整数値で出力してください。`,
   });
 
   // ─── Admin: Clinic Info ──────────────────────────────────────────
-  app.get("/api/admin/clinic", async (_req, res) => {
+  app.get("/api/admin/clinic", requireStaffAuth, async (req, res) => {
+    const ctx = req.staffContext!;
     try {
       const supabase = serviceClient;
-      const clinicId = process.env.TEST_CLINIC_ID;
-      if (clinicId) {
-        const { data, error } = await supabase.from("clinics").select("id, name").eq("id", clinicId).single();
-        if (!error && data) return res.json(data);
-      }
-      const demo = await getOrCreateDemoClinicAndPatient();
-      const { data, error } = await supabase.from("clinics").select("id, name").eq("id", demo.clinic_id).single();
+      const { data, error } = await supabase
+        .from("clinics")
+        .select("id, name")
+        .eq("id", ctx.clinicId)
+        .single();
       if (error) return res.status(500).json({ error: error.message });
       res.json(data);
     } catch (e) {
