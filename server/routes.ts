@@ -206,8 +206,11 @@ export async function registerRoutes(
   })();
 
   // Audio upload endpoint (receives raw binary, uploads to Supabase Storage)
+  // requireStaffAuth + owner/staff role 必須。X-Clinic-Id は無視し、staffContext.clinicId を強制。
+  // X-Patient-Id は verifyPatientBelongsToStaffClinic で必ず検証。
   app.post(
     "/api/audio/upload",
+    requireStaffAuth,
     (req, res, next) => {
       // collect raw body as Buffer
       const chunks: Buffer[] = [];
@@ -219,15 +222,25 @@ export async function registerRoutes(
       req.on("error", next);
     },
     async (req, res) => {
+      if (!requireStaffOrOwnerRole(req, res)) return;
+      const ctx = req.staffContext!;
       try {
         const phase = (req.headers["x-phase"] as string) || "pre";
-        const clinicId = (req.headers["x-clinic-id"] as string) || "unknown";
-        const patientId = (req.headers["x-patient-id"] as string) || "unknown";
+        // X-Clinic-Id は信用しない。staffContext.clinicId を強制使用。
+        const patientId = (req.headers["x-patient-id"] as string) || "";
+        if (!patientId) {
+          return res.status(400).json({ error: "X-Patient-Id required" });
+        }
+        const belongs = await verifyPatientBelongsToStaffClinic(patientId, ctx.clinicId);
+        if (!belongs) {
+          return res.status(404).json({ error: "patient not found" });
+        }
+
         const timestamp = (req.headers["x-timestamp"] as string) || Date.now().toString();
         const contentType = req.headers["content-type"] || "audio/webm";
         const ext = contentType.includes("mp4") ? "mp4" : "webm";
 
-        const filePath = `${clinicId}/${patientId}/${phase}_${timestamp}.${ext}`;
+        const filePath = `${ctx.clinicId}/${patientId}/${phase}_${timestamp}.${ext}`;
         const body = (req as any).rawBody as Buffer;
 
         if (!body || body.length === 0) {
@@ -258,8 +271,10 @@ export async function registerRoutes(
   );
 
   // Whisper transcription endpoint
+  // requireStaffAuth + owner/staff role 必須。患者紐付けはなし（音声処理のみ）。
   app.post(
     "/api/transcribe",
+    requireStaffAuth,
     (req, res, next) => {
       const chunks: Buffer[] = [];
       req.on("data", (chunk: Buffer) => chunks.push(chunk));
@@ -267,6 +282,7 @@ export async function registerRoutes(
       req.on("error", next);
     },
     async (req, res) => {
+      if (!requireStaffOrOwnerRole(req, res)) return;
       const openaiKey = process.env.OPENAI_API_KEY;
       if (!openaiKey) {
         return res.status(500).json({ error: "APIキーを確認してください" });
@@ -414,7 +430,8 @@ export async function registerRoutes(
     }
   );
 
-  app.post("/api/summarize", async (req, res) => {
+  app.post("/api/summarize", requireStaffAuth, async (req, res) => {
+    if (!requireStaffOrOwnerRole(req, res)) return;
     try {
       if (!checkRateLimit(req.ip || "unknown")) {
         return res.status(429).json({ error: true });
@@ -448,7 +465,9 @@ key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に
     }
   });
 
-  app.post("/api/analyze", async (req, res) => {
+  app.post("/api/analyze", requireStaffAuth, async (req, res) => {
+    if (!requireStaffOrOwnerRole(req, res)) return;
+    const ctx = req.staffContext!;
     try {
       if (!checkRateLimit(req.ip || "unknown")) {
         return res.status(429).json({ error: "リクエスト制限に達しました。しばらくお待ちください。" });
@@ -462,9 +481,18 @@ key_symptomsルール: 必ず「症状・部位・動作・身体的所見」に
 
       const transcription = parsed.data.transcription;
       const reqPatientId = parsed.data.patient_id;
-      const reqClinicId = parsed.data.clinic_id;
+      // body.clinic_id は信用せず staffContext.clinicId を強制使用
       const reqStaffName = parsed.data.staff_name;
       const structuredTranscripts = parsed.data.structured_transcripts;
+
+      // patient_id 必須 + 自院所属検証（demo fallback は撤去）
+      if (!reqPatientId) {
+        return res.status(400).json({ error: "patient_id required" });
+      }
+      const belongs = await verifyPatientBelongsToStaffClinic(reqPatientId, ctx.clinicId);
+      if (!belongs) {
+        return res.status(404).json({ error: "patient not found" });
+      }
 
       // ── Step 1: Haiku — 会話 → 構造化JSON ──────────────────────────
       let haikuText = "";
@@ -555,14 +583,9 @@ JSONのみを返すこと。前置きや説明は不要。`,
       try {
         const supabase = serviceClient;
 
-        let clinic_id = reqClinicId;
-        let patient_id = reqPatientId;
-
-        if (!clinic_id || !patient_id) {
-          const demo = await getOrCreateDemoClinicAndPatient();
-          clinic_id = clinic_id ?? demo.clinic_id;
-          patient_id = patient_id ?? demo.patient_id;
-        }
+        // clinic_id は staffContext から、patient_id は事前検証済みのもの。demo fallback 撤去。
+        const clinic_id = ctx.clinicId;
+        const patient_id = reqPatientId;
 
         const { data: visitData, error: visitError } = await supabase
           .from("visits")
@@ -595,7 +618,8 @@ JSONのみを返すこと。前置きや説明は不要。`,
     }
   });
 
-  app.post("/api/correlate", async (req, res) => {
+  app.post("/api/correlate", requireStaffAuth, async (req, res) => {
+    if (!requireStaffOrOwnerRole(req, res)) return;
     try {
       if (!checkRateLimit(req.ip || "unknown")) {
         return res.status(429).json({ error: true });

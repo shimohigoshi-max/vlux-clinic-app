@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { IPadView } from "@/components/ipad-view";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import type {
   SummaryResult, KarteResult, CorrelationResult, Product, KarteHistoryEntry,
 } from "@/lib/constants";
@@ -85,9 +86,18 @@ async function splitStereoToWavBlobs(blob: Blob): Promise<{ teacher: Blob; patie
 }
 
 async function callTranscribe(wavBlob: Blob, speaker: "teacher" | "patient"): Promise<string> {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const token = sessionData.session?.access_token;
+  if (!token) {
+    throw new Error("認証セッションがありません。ログインし直してください");
+  }
   const res = await fetch("/api/transcribe", {
     method: "POST",
-    headers: { "Content-Type": "audio/wav", "X-Speaker": speaker },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "audio/wav",
+      "X-Speaker": speaker,
+    },
     body: wavBlob,
   });
   const data = await res.json();
@@ -222,13 +232,18 @@ export default function ClinicApp() {
 
         try {
           const ts = Date.now().toString();
+          const { data: sessionData } = await supabase.auth.getSession();
+          const token = sessionData.session?.access_token;
+          if (!token) {
+            throw new Error("認証セッションがありません。ログインし直してください");
+          }
           const res = await fetch("/api/audio/upload", {
             method: "POST",
             headers: {
+              Authorization: `Bearer ${token}`,
               "Content-Type": mimeType,
               "X-Phase": phase,
-              "X-Clinic-Id": selectedClinicId || "unknown",
-              "X-Patient-Id": selectedPatientId || "unknown",
+              "X-Patient-Id": selectedPatientId || "",
               "X-Timestamp": ts,
             },
             body: blob,
