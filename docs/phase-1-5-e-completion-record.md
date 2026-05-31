@@ -1,9 +1,10 @@
 # VLUX Phase 1.5-E 統合完了記録
 
 作成日：2026-05-30
+追記更新日：2026-05-31（E-2-5 AI / 音声 API hardening 実装完了を反映）
 対象：Phase 1.5-E（フロント Auth UI / セッション接続 / API 認証境界）全体
 ステータス：**PASS with documented deferrals**
-現在地：HEAD = `349a2f7`、local main = origin/main = working tree clean
+現在地：HEAD = `bb4b8d6`、local main = origin/main = `bb4b8d6`、working tree clean
 変更種別：documentation only（コード変更なし）
 
 ---
@@ -22,9 +23,10 @@ Phase 1.5-E は以下の判定で完了とする。
 ✅ patient / visits API hardening + 論理削除化 = PASS
 ✅ owner-role positive runtime verification（C-2）= PASS
 ✅ logout + anon 401 verification = PASS
+✅ AI / 音声 API hardening = PASS（cf3879f で実装、bb4b8d6 で完了 docs）
 ⚠ yamada exact owner JWT verification = deferred（Phase 2 再構築時）
 ⚠ staff / reception positive runtime check = deferred
-⚠ AI / 音声 API hardening = audit 完了、実装は次フェーズ
+⚠ 本物 analyze 1 回（Claude 実呼び出し）= deferred
 ```
 
 これにより、**Phase 1 βテスト前の最重要関門である「フロント Auth UI / セッション接続」「API 認証境界」「マルチテナント分離」**は確立された。
@@ -91,17 +93,25 @@ Phase 1.5-E は以下の判定で完了とする。
 
 未ログイン 401 / patient JWT 403 PASS。
 
-### E-2-5：AI / 音声 API audit（実装は次フェーズ）
+### E-2-5：AI / 音声 API hardening（**完了、2026-05-31 追記**）
 
-| API | audit 結果 | 実装 |
-|-----|-----------|------|
-| `POST /api/audio/upload` | ❌ 無認証、X-Patient-Id 信用 | 未実装 |
-| `POST /api/transcribe` | ❌ 無認証、OpenAI Whisper 送信 | 未実装 |
-| `POST /api/summarize` | ❌ 無認証、Claude 送信 | 未実装 |
-| `POST /api/analyze` | ❌ 無認証、Claude 2 段 + visit 作成 | 未実装 |
-| `POST /api/correlate` | ❌ 無認証、Claude 送信 | 未実装 |
+| API | role 制御 | clinic スコープ | patient スコープ | 追加変更 |
+|-----|----------|----------------|----------------|---------|
+| `POST /api/audio/upload` | owner / staff | ✅ staffContext.clinicId 強制（X-Clinic-Id 無視）| ✅ X-Patient-Id を verify | filePath を ctx.clinicId 経路に統一 |
+| `POST /api/transcribe` | owner / staff | — | — | direct fetch に Authorization Bearer 付与 |
+| `POST /api/summarize` | owner / staff | — | — | rate limit 維持 |
+| `POST /api/analyze` | owner / staff | ✅ staffContext.clinicId 強制（body.clinic_id 無視）| ✅ body.patient_id 必須化 + verify | **demo fallback 撤去** |
+| `POST /api/correlate` | owner / staff | — | — | rate limit 維持 |
 
-→ E-2-5 audit 完了（commit `cb1e3b6`）、実装は **AI / 音声 API hardening** として後続継続。
+証跡チェーン：
+
+```txt
+cb1e3b6  docs: record phase 1.5-e-2-5 ai audio api audit            （audit、2026-05-28）
+cf3879f  fix(auth): protect ai audio staff APIs                      （実装、2026-05-31）
+bb4b8d6  docs: record phase 1.5-e-2-5 ai audio api hardening         （完了 docs、2026-05-31）
+```
+
+未ログイン 5 本 401 / patient JWT 5 本 403 "not a staff" PASS。AI コスト 0、DB 影響 0、regression なし。
 
 ### E-5：owner real JWT runtime verification
 
@@ -136,16 +146,16 @@ Phase 1.5-E は以下の判定で完了とする。
 | `GET /api/visits` | requireStaffAuth | all | clinic + patient_id 検証 | E-2-4 |
 | `PATCH /api/visits/:id` | requireStaffAuth | owner / staff | visit clinic 一致確認 | E-2-4 |
 | `DELETE /api/visits/:id` | requireStaffAuth | owner | clinic 一致 + 論理削除 | E-2-4 |
+| `POST /api/audio/upload` | requireStaffAuth | owner / staff | staffContext.clinicId 強制 + X-Patient-Id verify | E-2-5（`cf3879f`）|
+| `POST /api/transcribe` | requireStaffAuth | owner / staff | — | E-2-5 |
+| `POST /api/summarize` | requireStaffAuth | owner / staff | — | E-2-5 |
+| `POST /api/analyze` | requireStaffAuth | owner / staff | staffContext.clinicId 強制 + body.patient_id verify + demo fallback 撤去 | E-2-5 |
+| `POST /api/correlate` | requireStaffAuth | owner / staff | — | E-2-5 |
 
 ### 未防御エンドポイント（次フェーズ対象）
 
 | エンドポイント | 推奨 hardening |
 |-------------|--------------|
-| `POST /api/audio/upload` | requireStaffAuth + clinic 強制 + patient_id 検証 |
-| `POST /api/transcribe` | requireStaffAuth + role 制御 |
-| `POST /api/summarize` | requireStaffAuth + role 制御 |
-| `POST /api/analyze` | requireStaffAuth + clinic 強制 + patient_id 検証 + demo fallback 撤去 |
-| `POST /api/correlate` | requireStaffAuth + role 制御 |
 | `PATCH /api/patients/:id` | requireStaffAuth + role + clinic 一致 |
 | `DELETE /api/patients/:id` | requireStaffAuth + owner + clinic 一致 + 論理削除 |
 | `POST /api/patients/invite` | requireStaffAuth + clinic 一致 |
@@ -176,6 +186,11 @@ Phase 1.5-E は以下の判定で完了とする。
 未ログイン DELETE /api/staffs/:id       → 401  ✅
 未ログイン PATCH /api/visits/:id        → 401  ✅
 未ログイン DELETE /api/visits/:id       → 401  ✅
+未ログイン POST  /api/audio/upload      → 401  ✅  （E-2-5）
+未ログイン POST  /api/transcribe        → 401  ✅  （E-2-5）
+未ログイン POST  /api/summarize         → 401  ✅  （E-2-5）
+未ログイン POST  /api/analyze           → 401  ✅  （E-2-5）
+未ログイン POST  /api/correlate         → 401  ✅  （E-2-5）
 ```
 
 ### ブラウザ実機検証（patient.test01 JWT）
@@ -190,6 +205,21 @@ Phase 1.5-E は以下の判定で完了とする。
 /api/staffs          → 403 not a staff ✅
 /api/patients        → 403 not a staff ✅
 /api/visits          → 403 not a staff ✅
+/api/audio/upload    → 403 not a staff ✅  （E-2-5）
+/api/transcribe      → 403 not a staff ✅  （E-2-5）
+/api/summarize       → 403 not a staff ✅  （E-2-5）
+/api/analyze         → 403 not a staff ✅  （E-2-5）
+/api/correlate       → 403 not a staff ✅  （E-2-5）
+```
+
+### E-2-5 補足（build / typecheck / コスト / DB 影響）
+
+```txt
+npm run build          : 成功（client 不変、server 958.7 → 959.0 KB +0.3 KB）
+npm run check          : 既知 9 件のまま、新規 0 件
+AI / OpenAI コスト     : 0 円（minimal body smoke で外部 API 未呼び出し）
+DB 影響                : 0 行（新規 visit / patient / clinic / staff / health_data 変更なし）
+regression             : なし（既存 11 本がすべて 401 維持）
 ```
 
 ### ブラウザ実機検証（owner-role JWT、C-2 方式）
@@ -244,19 +274,22 @@ Supabase Table Editor で role=authenticated / user=yamada
 
 ## 5. 残課題（次フェーズの優先順位）
 
-### 5.1 AI / 音声 API hardening（E-2-5 implementation）
+### 5.1 AI / 音声 API hardening（E-2-5 implementation）— **完了済み（2026-05-31 追記）**
 
 ```txt
-最優先：CLAUDE.md「Claude API への PHI 混入を防ぐ」「音声データの適切な管理」に直接抵触
+✅ 完了：cf3879f で 5 endpoint hardening 実装、bb4b8d6 で完了 docs
 対象：
-  POST /api/audio/upload       requireStaffAuth + clinic 強制 + patient_id verify
-  POST /api/transcribe         requireStaffAuth + role (owner/staff)
-  POST /api/summarize          requireStaffAuth + role
-  POST /api/analyze            requireStaffAuth + clinic + patient_id verify + demo fallback 撤去
-  POST /api/correlate          requireStaffAuth + role
+  POST /api/audio/upload       requireStaffAuth + clinic 強制 + patient_id verify  ✅
+  POST /api/transcribe         requireStaffAuth + role (owner/staff)               ✅
+  POST /api/summarize          requireStaffAuth + role                             ✅
+  POST /api/analyze            requireStaffAuth + clinic + patient_id verify       ✅
+                               getOrCreateDemoClinicAndPatient fallback 撤去       ✅
+  POST /api/correlate          requireStaffAuth + role                             ✅
 副次：
-  client/src/pages/clinic.tsx の audio/upload fetch に Authorization ヘッダ手動付与
+  client/src/pages/clinic.tsx の audio/upload / transcribe fetch に Authorization Bearer 手動付与  ✅
 ```
+
+→ 詳細は `docs/phase-1-5-e-2-5-ai-audio-api-hardening-complete.md` 参照。
 
 ### 5.2 残り PHI 系 API hardening
 
@@ -276,11 +309,17 @@ DELETE /api/visits/:id 周辺の物理 DELETE 残存（staffs / clinics / patien
 
 | 項目 | 内容 | 規模 |
 |------|------|------|
+| **staff JWT positive runtime check** | E-2-5 対象 5 endpoint で staff JWT 非 401 / 期待動作確認、deferred 中 | 軽量 |
+| **本物 analyze 1 回（Claude 実呼び出し）** | bbbbbbbb-... patient で 1 visit 作成、AI コスト発生 | 軽量 |
 | coupons 500 graceful return | `coupons` テーブル不在による 500 を `[]` 返却に切替 | 軽量 |
 | `getDemoPatientId` 残存整理 | `/api/dev/seed` / `/api/health-data/sync` 等に残る demo fallback を撤去 | 軽量 |
 | `getUserFromToken` err logging | `server/lib/supabaseService.ts:110` の `console.error('[getUserFromToken] 例外:', err)` を `err?.message` に絞る | 軽量 |
 | `buildAuthHeaders` simplification | `client/src/lib/queryClient.ts` の `Headers` / `Array` 形式分岐は未使用、簡素化 | 軽量 |
-| staff positive runtime check | sato / tanaka の実ログイン検証 | 中（password 設定が必要）|
+| audio-recordings bucket の signed URL 化 | 現状 `getPublicUrl()`（public:false なので即時漏洩リスクは限定的）→ `createSignedUrl()` 化 | 軽量 |
+| audio retention policy | 過去音声の保存期間 / 自動削除設計 | 中 |
+| staff 単位 rate limit | 現状 IP 単位 10/min → staff_id 単位へ | 中 |
+| staff (sato / tanaka) positive runtime check | sato / tanaka の実ログイン検証 | 中（password 設定が必要）|
+| 残り PHI 系 API hardening | §5.2 全項目 | 中〜大 |
 
 ### 5.4 Phase 2 候補（本フェーズ範囲外）
 
@@ -290,17 +329,19 @@ phase2_rls_apply.sql の適用（DB 層 RLS 本格化）
 本物のメールで yamada exact owner JWT verification 再構築
 3 院クローズドβ実装
 multi-tenant 管理 UI
-audio-recordings bucket の createSignedUrl 化
-staff 単位 rate limit（IP ベース → staff_id ベース）
+audio-recordings bucket の lifecycle / retention 本格設計
 既知 9 件の TypeScript エラー解消
 ```
 
 ---
 
-## 6. Phase 1.5-E 関連 commit 列（21 commits）
+## 6. Phase 1.5-E 関連 commit 列（24 commits、追記更新時点）
 
 ```txt
-349a2f7 docs: record phase 1.5-e-5 owner real jwt verification         ← Phase 1.5-E 統合完了の直前
+bb4b8d6 docs: record phase 1.5-e-2-5 ai audio api hardening            ← E-2-5 完了 docs（2026-05-31）
+cf3879f fix(auth): protect ai audio staff APIs                          ← E-2-5 実装（2026-05-31）
+c69ad6b docs: record phase 1.5-e completion                             ← 統合完了記録 初版
+349a2f7 docs: record phase 1.5-e-5 owner real jwt verification
 cb1e3b6 docs: record phase 1.5-e-2-5 ai audio api audit
 8fabdf6 docs: record phase 1.5-e-2-4 patient visits api hardening
 c18c761 fix(auth): protect patient and visit staff APIs
@@ -323,9 +364,11 @@ e2e688e docs: record phase 1.5-e-1 patient auth minimum completion
 37b040e feat(auth): add patient login session and patient me endpoint
 ```
 
-実装 / 修正 commit：6 件（feat × 2, fix × 4）
-docs commit：13 件
+実装 / 修正 commit：7 件（feat × 2, fix × 5）
+docs commit：15 件
 chore commit：2 件
+
+※ 本 docs（completion record）の本追記更新は HEAD 上記 bb4b8d6 から派生する次の commit で記録される。
 
 ---
 
@@ -350,9 +393,10 @@ docs/phase-1-5-e-2-3-staff-clinic-api-hardening-complete.md   E-2-3 staff/clinic
 docs/phase-1-5-e-2-4-patient-visits-api-audit.md              E-2-4 audit
 docs/phase-1-5-e-2-4-patient-visits-api-hardening-complete.md E-2-4 patient/visits API hardening
 docs/phase-1-5-e-2-5-ai-audio-api-audit.md                    E-2-5 AI/音声 audit
+docs/phase-1-5-e-2-5-ai-audio-api-hardening-complete.md       E-2-5 AI/音声 API hardening 完了（2026-05-31）
 docs/phase-1-5-e-5-owner-real-jwt-verification.md             E-5 owner JWT verification
 
-docs/phase-1-5-e-completion-record.md                         本文書（統合完了記録）
+docs/phase-1-5-e-completion-record.md                         本文書（統合完了記録、2026-05-31 追記更新）
 ```
 
 ---
@@ -417,15 +461,15 @@ docs/phase-1-5-e-completion-record.md                         本文書（統合
 
 ---
 
-## 10. 現状の git / DB 状態
+## 10. 現状の git / DB 状態（2026-05-31 追記更新時点）
 
 ```txt
-HEAD                    : 349a2f7
-origin/main             : 349a2f7
+HEAD                    : bb4b8d6
+origin/main             : bb4b8d6
 branch                  : main
-working tree            : clean
-dev server              : stopped
-port 5001               : free
+working tree            : clean（本 docs 追記更新前）
+dev server              : 起動中（PID 28309、port 5001）※ 区切りで停止予定
+port 5001               : LISTEN
 
 DB:
   patients              : total=6, active=2, soft-deleted=4
@@ -434,7 +478,8 @@ DB:
   clinics               : 2（堺整骨院（テスト）owner=yamada, VLUXデモ owner=NULL）
   staffs                : 3（yamada / sato / tanaka）
   auth.users            : 4（patient.test01 / yamada / sato / tanaka）
-  検証用一時データ      : 完全削除済み
+  検証用一時データ      : 完全削除済み（E-5 C-2 rollback で除去）
+  E-2-5 検証で追加された visit / health_data / audio file : なし（minimal body smoke のみ実施、AI コスト 0）
 ```
 
 ---
@@ -443,6 +488,27 @@ DB:
 
 ```txt
 Phase 1.5-E（フロント Auth UI / セッション接続 / API 認証境界）= PASS with documented deferrals
+追記更新（2026-05-31）：AI / 音声 API hardening も完了。CLAUDE.md「Claude API への PHI 混入を防ぐ」
+「音声データの適切な管理」最優先原則への直接対応も完結。
 ```
 
 deferrals は §4 で明示。次のフェーズで継続対応する。
+
+### 追記更新差分（c69ad6b → bb4b8d6、2026-05-31）
+
+```txt
+c69ad6b → cf3879f → bb4b8d6 の 2 commit 追加：
+  cf3879f  fix(auth): protect ai audio staff APIs                       （実装）
+  bb4b8d6  docs: record phase 1.5-e-2-5 ai audio api hardening          （完了 docs）
+
+変更：
+  §0 結論                : E-2-5 を ⚠ deferred から ✅ 完了に格上げ
+  §1 サブフェーズ         : E-2-5 のテーブルを未実装一覧から完了一覧に書き換え
+  §2 認証境界            : 防御済みエンドポイントに 5 本追加、未防御から削除
+  §3 検証 PASS 一覧      : 未ログイン smoke / patient JWT smoke に 5 本追加、E-2-5 補足を追記
+  §5 残課題             : §5.1 を「完了済み」表記に変更、§5.3 に「本物 analyze 1 回」「signed URL 化」等を移動
+  §6 commit 列          : 21 → 24 commits（cf3879f / bb4b8d6 / c69ad6b 追加）
+  §7 関連 docs          : E-2-5 hardening complete docs 追加
+  §10 git / DB 状態     : HEAD = bb4b8d6 に更新
+  §11 完了宣言          : AI / 音声境界完結を追記
+```
